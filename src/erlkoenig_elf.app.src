@@ -1,0 +1,18 @@
+{application, erlkoenig_elf, [
+    {description, "ELF64 binary analysis service"},
+    {vsn, "0.1.0"},
+    {registered, [erlkoenig_elf_sup, erlkoenig_elf_srv]},
+    {mod, {erlkoenig_elf_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto
+    ]},
+    {env, [
+        {socket_path, "/run/erlkoenig_elf/ctl.sock"},
+        {dist_port, 9103}
+    ]},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, [{"GitHub", "https://github.com/iRaffnix/erlkoenig_elf"}]}
+]}.

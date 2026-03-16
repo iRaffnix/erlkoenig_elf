@@ -1,0 +1,29 @@
+[Unit]
+Description=Erlkoenig ELF Analysis Service
+After=network.target
+
+[Service]
+Type=simple
+Environment=ERL_DIST_PORT=9103
+ExecStart=/bin/sh -c 'RELX_COOKIE=$$(cat /opt/erlkoenig_elf/cookie) exec /opt/erlkoenig_elf/bin/erlkoenig-elfd foreground'
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+
+RuntimeDirectory=erlkoenig_elf
+RuntimeDirectoryMode=0755
+
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

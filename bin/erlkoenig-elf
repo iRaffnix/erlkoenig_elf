@@ -1,0 +1,291 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+%%! -noinput +sbwt none
+%%
+%% erlkoenig-elf — CLI client for the erlkoenig_elf analysis daemon.
+%%
+%% Connects to the daemon's Unix socket for fast analysis.
+%% Falls back to local (in-process) analysis if the daemon is not running.
+
+-define(SOCKET_PATH, "/run/erlkoenig_elf/ctl.sock").
+-define(CONNECT_TIMEOUT, 2000).
+-define(RECV_TIMEOUT, 30000).
+
+main(Args) ->
+    ensure_code_paths(),
+    case parse_args(Args) of
+        {error, Msg} ->
+            io:format(standard_error, "Error: ~s~n", [Msg]),
+            halt(1);
+        help ->
+            usage(),
+            halt(0);
+        version ->
+            case request(version) of
+                {version, Vsn} ->
+                    io:format("erlkoenig_elf ~s~n", [Vsn]);
+                {error, _} ->
+                    io:format("erlkoenig_elf (daemon offline)~n")
+            end;
+        {Command, Path} ->
+            run(Command, Path);
+        {Command, Path, Extra} ->
+            run(Command, Path, Extra)
+    end.
+
+%% ---------------------------------------------------------------------------
+%% Code path setup (for local fallback when daemon is offline)
+%% ---------------------------------------------------------------------------
+
+ensure_code_paths() ->
+    ScriptDir = filename:dirname(escript:script_name()),
+    RootDir = filename:dirname(ScriptDir),
+    %% In a release: ../lib/erlkoenig_elf-*/ebin
+    RelPattern = filename:join([RootDir, "lib", "erlkoenig_elf-*", "ebin"]),
+    %% In dev: _build/default/lib/erlkoenig_elf/ebin (relative to cwd)
+    DevPattern = filename:join(["_build", "default", "lib", "erlkoenig_elf", "ebin"]),
+    lists:foreach(fun(Pattern) ->
+        case filelib:wildcard(Pattern) of
+            [] -> ok;
+            Dirs -> lists:foreach(fun code:add_pathz/1, Dirs)
+        end
+    end, [RelPattern, DevPattern]),
+    ok.
+
+%% ---------------------------------------------------------------------------
+%% Argument parsing
+%% ---------------------------------------------------------------------------
+
+parse_args(["help" | _])       -> help;
+parse_args(["--help" | _])     -> help;
+parse_args(["-h" | _])         -> help;
+parse_args(["version" | _])    -> version;
+parse_args(["--version" | _])  -> version;
+
+parse_args(["analyze", Path])  -> {analyze, Path};
+parse_args(["syscalls", Path]) -> {syscalls, Path};
+parse_args(["seccomp", Path])  -> {seccomp, Path};
+parse_args(["language", Path]) -> {language, Path};
+parse_args(["deps", Path])     -> {deps, Path};
+parse_args(["ping"])           -> {ping, none};
+
+parse_args(["patch", Path, Func]) ->
+    {patch, Path, {Func, ret_zero}};
+parse_args(["patch", Path, Func, "--strategy", Strategy]) ->
+    {patch, Path, {Func, list_to_atom(Strategy)}};
+
+parse_args([]) ->
+    {error, "no command given. Run 'erlkoenig-elf help' for usage"};
+parse_args([Cmd | _]) ->
+    {error, io_lib:format("unknown command: ~s", [Cmd])}.
+
+usage() ->
+    io:format(
+"Usage: erlkoenig-elf <command> [args]
+
+Commands:
+  analyze  <binary>                    Full analysis report
+  syscalls <binary>                    Extract syscalls
+  seccomp  <binary>                    Generate seccomp profile (JSON)
+  language <binary>                    Detect source language
+  deps     <binary>                    Show embedded dependencies
+  patch    <binary> <func> [--strategy S]  Neutralize a function
+  ping                                 Check if daemon is running
+  version                              Show version
+
+Patch strategies: ret_zero (default), ret_one, ret_neg, nop
+
+Output is JSON. Pipe through jq for pretty-printing:
+  erlkoenig-elf analyze /usr/bin/ls | jq .
+").
+
+%% ---------------------------------------------------------------------------
+%% Command execution
+%% ---------------------------------------------------------------------------
+
+run(ping, _Path) ->
+    case request(ping) of
+        pong ->
+            io:format("pong~n");
+        {error, Reason} ->
+            io:format(standard_error, "daemon offline: ~p~n", [Reason]),
+            halt(1)
+    end;
+
+run(Command, Path) ->
+    Request = {Command, list_to_binary(Path)},
+    case request(Request) of
+        {ok, Result} ->
+            output_json(Result);
+        {error, Reason} ->
+            print_error(Reason),
+            halt(1)
+    end.
+
+run(patch, Path, {Func, Strategy}) ->
+    Request = {patch, list_to_binary(Path), list_to_binary(Func), Strategy},
+    case request(Request) of
+        {ok, Result} ->
+            output_json(Result);
+        {error, Reason} ->
+            print_error(Reason),
+            halt(1)
+    end.
+
+print_error({file_not_found, P}) ->
+    io:format(standard_error, "Error: file not found: ~s~n", [P]);
+print_error({permission_denied, P}) ->
+    io:format(standard_error, "Error: permission denied: ~s~n", [P]);
+print_error({not_regular_file, P}) ->
+    io:format(standard_error, "Error: not a regular file: ~s~n", [P]);
+print_error(Reason) ->
+    io:format(standard_error, "Error: ~p~n", [Reason]).
+
+%% ---------------------------------------------------------------------------
+%% Socket communication (primary path)
+%% ---------------------------------------------------------------------------
+
+request(Request) ->
+    SocketPath = socket_path(),
+    case gen_tcp:connect({local, SocketPath}, 0,
+                         [binary, {packet, 4}, {active, false}],
+                         ?CONNECT_TIMEOUT) of
+        {ok, Sock} ->
+            Payload = term_to_binary(Request),
+            ok = gen_tcp:send(Sock, Payload),
+            Result = case gen_tcp:recv(Sock, 0, ?RECV_TIMEOUT) of
+                {ok, Data} ->
+                    binary_to_term(Data);
+                {error, Reason} ->
+                    {error, {recv_failed, Reason}}
+            end,
+            gen_tcp:close(Sock),
+            Result;
+        {error, _} ->
+            %% Daemon offline — fall back to local analysis
+            request_local(Request)
+    end.
+
+socket_path() ->
+    case os:getenv("ERLKOENIG_ELF_SOCKET") of
+        false -> ?SOCKET_PATH;
+        Path  -> Path
+    end.
+
+%% ---------------------------------------------------------------------------
+%% Local fallback (no daemon running)
+%% ---------------------------------------------------------------------------
+
+request_local(ping) ->
+    {error, daemon_offline};
+
+request_local(version) ->
+    {version, <<"0.1.0 (local)">>};
+
+request_local({analyze, Path}) ->
+    with_elf(Path, fun(Elf) -> erlkoenig_elf:analyze(Elf) end);
+
+request_local({syscalls, Path}) ->
+    with_elf(Path, fun(Elf) -> erlkoenig_elf:syscalls(Elf) end);
+
+request_local({seccomp, Path}) ->
+    with_elf(Path, fun(Elf) -> erlkoenig_elf:seccomp_json(Elf) end);
+
+request_local({language, Path}) ->
+    with_elf(Path, fun(Elf) -> {ok, erlkoenig_elf:language(Elf)} end);
+
+request_local({deps, Path}) ->
+    with_elf(Path, fun(Elf) -> erlkoenig_elf:deps(Elf) end);
+
+request_local({patch, Path, Func, Strategy}) ->
+    try erlkoenig_elf:patch(binary_to_list(Path), Func, Strategy) of
+        ok -> {ok, #{status => patched}};
+        {ok, Result} -> {ok, Result};
+        {error, _} = Err -> Err
+    catch
+        _:Reason -> {error, Reason}
+    end;
+
+request_local(_) ->
+    {error, unknown_request}.
+
+with_elf(Path, Fun) ->
+    try
+        case erlkoenig_elf:parse(Path) of
+            {ok, Elf} -> Fun(Elf);
+            {error, _} = Err -> Err
+        end
+    catch
+        _:Reason -> {error, Reason}
+    end.
+
+%% ---------------------------------------------------------------------------
+%% JSON output
+%% ---------------------------------------------------------------------------
+
+output_json(Term) ->
+    Json = to_json(Term),
+    io:format("~s~n", [Json]).
+
+to_json(Map) when is_map(Map) ->
+    Pairs = maps:fold(fun(K, V, Acc) ->
+        Key = to_json_key(K),
+        Val = to_json(V),
+        [io_lib:format("~s: ~s", [Key, Val]) | Acc]
+    end, [], Map),
+    ["{", lists:join(", ", lists:reverse(Pairs)), "}"];
+
+to_json(List) when is_list(List) ->
+    Items = [to_json(I) || I <- List],
+    ["[", lists:join(", ", Items), "]"];
+
+to_json(Bin) when is_binary(Bin) ->
+    ["\"", escape_json_string(Bin), "\""];
+
+to_json(Atom) when is_atom(Atom) ->
+    ["\"", atom_to_list(Atom), "\""];
+
+to_json(Int) when is_integer(Int) ->
+    integer_to_list(Int);
+
+to_json(Float) when is_float(Float) ->
+    float_to_list(Float, [{decimals, 6}, compact]);
+
+to_json(Tuple) when is_tuple(Tuple) ->
+    to_json(tuple_to_list(Tuple));
+
+to_json(IoData) ->
+    try
+        Flat = iolist_to_binary(IoData),
+        ["\"", escape_json_string(Flat), "\""]
+    catch
+        _:_ -> ["\"", io_lib:format("~p", [IoData]), "\""]
+    end.
+
+to_json_key(Atom) when is_atom(Atom) ->
+    ["\"", atom_to_list(Atom), "\""];
+to_json_key(Bin) when is_binary(Bin) ->
+    ["\"", escape_json_string(Bin), "\""];
+to_json_key(Other) ->
+    ["\"", io_lib:format("~p", [Other]), "\""].
+
+escape_json_string(Bin) ->
+    escape_json_string(Bin, []).
+
+escape_json_string(<<>>, Acc) ->
+    lists:reverse(Acc);
+escape_json_string(<<$", Rest/binary>>, Acc) ->
+    escape_json_string(Rest, [$", $\\ | Acc]);
+escape_json_string(<<$\\, Rest/binary>>, Acc) ->
+    escape_json_string(Rest, [$\\, $\\ | Acc]);
+escape_json_string(<<$\n, Rest/binary>>, Acc) ->
+    escape_json_string(Rest, [$n, $\\ | Acc]);
+escape_json_string(<<$\r, Rest/binary>>, Acc) ->
+    escape_json_string(Rest, [$r, $\\ | Acc]);
+escape_json_string(<<$\t, Rest/binary>>, Acc) ->
+    escape_json_string(Rest, [$t, $\\ | Acc]);
+escape_json_string(<<C, Rest/binary>>, Acc) when C < 32 ->
+    Hex = io_lib:format("\\u~4.16.0b", [C]),
+    escape_json_string(Rest, [Hex | Acc]);
+escape_json_string(<<C, Rest/binary>>, Acc) ->
+    escape_json_string(Rest, [C | Acc]).
