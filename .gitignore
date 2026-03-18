@@ -5,6 +5,7 @@ _vendor/
 .rebar3/
 rebar3.crashdump
 erl_crash.dump
+idoc
 
 # Compiled
 *.o
@@ -23,6 +24,10 @@ logs/
 *~
 .idea/
 *.iml
+
+# Syscall matrix test artifacts
+test/syscall_matrix/bin/
+test/syscall_matrix/strace/
 
 # Runtime
 .erlang.cookie

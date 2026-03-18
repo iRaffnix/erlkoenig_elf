@@ -38,6 +38,47 @@ jobs:
       - name: Dialyzer
         run: rebar3 dialyzer
 
+  syscall-matrix:
+    name: Syscall Matrix Tests
+    runs-on: ubuntu-22.04
+    needs: [erlang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          rebar3-version: '3.24'
+
+      - name: Install test prerequisites
+        run: sudo apt-get update && sudo apt-get install -y binutils strace
+
+      - name: Cache rebar3
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: rebar3-otp27-${{ runner.os }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
+          restore-keys: |
+            rebar3-otp27-${{ runner.os }}-
+
+      - name: Cache matrix binaries
+        uses: actions/cache@v4
+        with:
+          path: test/syscall_matrix/bin/asm
+          key: matrix-asm-${{ hashFiles('test/syscall_matrix/asm/*.S') }}
+
+      - name: Build matrix binaries
+        run: make test-matrix-build
+
+      - name: Run strace
+        run: make test-matrix-strace
+
+      - name: Run matrix tests
+        run: make test-matrix
+
   release:
     name: Release ${{ matrix.target.name }}
     runs-on: ubuntu-22.04

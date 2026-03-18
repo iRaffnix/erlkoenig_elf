@@ -12,7 +12,8 @@
 -module(elf_decode_x86_64).
 
 -export([decode/2, decode_all/1, find_syscalls/1,
-         resolve_syscall/3, extract_syscalls/1]).
+         resolve_syscall/3, extract_syscalls/1,
+         call_targets/3]).
 
 -export_type([insn_type/0]).
 
@@ -82,6 +83,26 @@ extract_syscalls(Bin) ->
             {[], 0},
             Sites),
     {lists:usort(Resolved), Unresolved}.
+
+%% @doc Find direct CALL rel32 targets from pre-decoded instructions.
+%% Returns [{CallOffset, AbsoluteTargetAddr}].
+-spec call_targets(binary(), non_neg_integer(), [#x86_insn{}]) ->
+    [{non_neg_integer(), non_neg_integer()}].
+call_targets(Bin, BaseAddr, Insns) ->
+    lists:filtermap(
+        fun(#x86_insn{type = call, offset = Off, length = Len}) when Len >= 5 ->
+            %% Direct CALL rel32: E8 byte is at the end of the instruction
+            E8Pos = Off + Len - 5,
+            case Bin of
+                <<_:E8Pos/binary, 16#E8, Rel:32/little-signed, _/binary>> ->
+                    Target = BaseAddr + Off + Len + Rel,
+                    {true, {Off, Target}};
+                _ ->
+                    false
+            end;
+           (_) -> false
+        end,
+        Insns).
 
 %% -------------------------------------------------------------------
 %% Internal: decode loop

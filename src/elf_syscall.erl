@@ -42,6 +42,10 @@ extract(#elf{header = #elf_header{machine = Arch}} = Elf)
                     end,
                     {ordsets:new(), 0, []},
                     ExecShdrs),
+            %% Callsite resolution: find syscall numbers passed to
+            %% stub functions like Go's syscall.RawSyscall
+            CallsiteNrs = resolve_callsite_syscalls(Elf, Arch, ExecShdrs),
+            AllNrs2 = ordsets:union(AllNrs, ordsets:from_list(CallsiteNrs)),
             Resolved = lists:foldl(
                 fun(Nr, Acc) ->
                     case elf_syscall_db:name(Arch, Nr) of
@@ -50,7 +54,7 @@ extract(#elf{header = #elf_header{machine = Arch}} = Elf)
                     end
                 end,
                 #{},
-                AllNrs),
+                AllNrs2),
             Cats = build_categories(maps:values(Resolved)),
             {ok, #{
                 arch => Arch,
@@ -121,6 +125,71 @@ build_sites(Mod, Data, #elf_shdr{addr = BaseAddr}) ->
             #{addr => BaseAddr + Off, syscall_nr => Nr}
         end,
         SyscallOffsets).
+
+%% ---------------------------------------------------------------------------
+%% Callsite-based syscall resolution
+%% ---------------------------------------------------------------------------
+
+%% For binaries that dispatch syscalls through shared stubs (e.g., Go's
+%% syscall.RawSyscall), find the syscall number at each call site by
+%% scanning backward from the CALL instruction for MOV RAX, imm32.
+-spec resolve_callsite_syscalls(#elf{}, x86_64 | aarch64, [#elf_shdr{}]) ->
+    [non_neg_integer()].
+resolve_callsite_syscalls(Elf, x86_64, ExecShdrs) ->
+    case find_syscall_stubs(Elf) of
+        [] -> [];
+        StubAddrs ->
+            lists:usort(lists:flatmap(
+                fun(Shdr) ->
+                    case elf_parse:section_data(Shdr, Elf) of
+                        {ok, Data} ->
+                            BaseAddr = Shdr#elf_shdr.addr,
+                            resolve_calls_in_section(Data, BaseAddr, StubAddrs);
+                        _ ->
+                            []
+                    end
+                end,
+                ExecShdrs))
+    end;
+resolve_callsite_syscalls(_, _, _) ->
+    [].
+
+-spec find_syscall_stubs(#elf{}) -> [non_neg_integer()].
+find_syscall_stubs(Elf) ->
+    case elf_parse_symtab:functions(Elf) of
+        {ok, Syms} ->
+            [Sym#elf_sym.value || Sym <- Syms,
+                                  Sym#elf_sym.size > 0,
+                                  is_syscall_stub(Sym#elf_sym.name)];
+        _ ->
+            []
+    end.
+
+-spec is_syscall_stub(binary()) -> boolean().
+is_syscall_stub(Name) ->
+    %% Match Go syscall dispatch functions:
+    %%   syscall.RawSyscall, syscall.RawSyscall6,
+    %%   syscall.Syscall, syscall.Syscall6,
+    %%   internal/runtime/syscall.Syscall6
+    binary:match(Name, <<"syscall.RawSyscall">>) =/= nomatch orelse
+    binary:match(Name, <<"syscall.Syscall">>) =/= nomatch.
+
+-spec resolve_calls_in_section(binary(), non_neg_integer(),
+                               [non_neg_integer()]) ->
+    [non_neg_integer()].
+resolve_calls_in_section(Data, BaseAddr, StubAddrs) ->
+    Insns = elf_decode_x86_64:decode_all(Data),
+    Calls = elf_decode_x86_64:call_targets(Data, BaseAddr, Insns),
+    StubCallOffsets = [Off || {Off, Target} <- Calls,
+                              lists:member(Target, StubAddrs)],
+    lists:filtermap(
+        fun(CallOff) ->
+            case elf_decode_x86_64:resolve_syscall(Data, CallOff, Insns) of
+                unresolved -> false;
+                Nr -> {true, Nr}
+            end
+        end,
+        StubCallOffsets).
 
 -spec build_categories([binary()]) -> #{atom() => [binary()]}.
 build_categories(Names) ->

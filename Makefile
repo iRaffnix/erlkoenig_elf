@@ -93,6 +93,24 @@ endif
 	@echo "Artifacts in /tmp/erlkoenig_elf-artifacts/"
 	@echo "Install with: sudo sh install.sh --local /tmp/erlkoenig_elf-artifacts"
 
+# ── Syscall matrix tests ────────────────────────────────
+
+test-matrix-gen:
+	escript test/syscall_matrix/gen_asm.escript
+	escript test/syscall_matrix/gen_go.escript
+
+test-matrix-build:
+	test/syscall_matrix/build_asm.sh
+	-test/syscall_matrix/build_go.sh
+
+test-matrix-strace:
+	test/syscall_matrix/run_strace.sh
+
+test-matrix: compile
+	rebar3 eunit --module=elf_syscall_matrix_test
+
+test-all: test test-matrix
+
 # ── Clean ────────────────────────────────────────────────
 
 clean:
