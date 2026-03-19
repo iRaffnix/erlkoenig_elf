@@ -5,7 +5,8 @@ _vendor/
 .rebar3/
 rebar3.crashdump
 erl_crash.dump
-idoc
+idoc/
+.claude/
 
 # Compiled
 *.o

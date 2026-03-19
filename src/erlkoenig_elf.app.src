@@ -9,8 +9,7 @@
         crypto
     ]},
     {env, [
-        {socket_path, "/run/erlkoenig_elf/ctl.sock"},
-        {dist_port, 9103}
+        {socket_path, "/run/erlkoenig_elf/ctl.sock"}
     ]},
     {modules, []},
     {licenses, ["Apache-2.0"]},

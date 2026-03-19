@@ -1,13 +1,12 @@
-## Erlkoenig ELF Analysis Service
-## No epmd — custom erlkoenig_epmd module resolves ports.
-## -erl_epmd_port tells relx which port to use for erl_call.
-## Distribution port pinning + interface binding is in sys.config.
+## Node name — use short name with actual hostname for cluster capability
+## For production: override with ERL_NODE_NAME env var or change this line
+-sname erlkoenig_elf
 
--name erlkoenig_elf@127.0.0.1
+## Cookie — set via RELX_COOKIE env var (from cookie file)
 -setcookie ${RELX_COOKIE}
--start_epmd false
--epmd_module erlkoenig_epmd
--erl_epmd_port 9103
 
-## Scheduler wakeup: respond quickly to socket requests
+## Standard epmd — hardened via ERL_EPMD_ADDRESS in systemd unit
+## Do NOT set -start_epmd false
+
+## Scheduler
 +sbwt very_short

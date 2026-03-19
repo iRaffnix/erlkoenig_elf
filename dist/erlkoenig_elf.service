@@ -4,19 +4,41 @@ After=network.target
 
 [Service]
 Type=simple
-Environment=ERL_DIST_PORT=9103
-ExecStart=/bin/sh -c 'RELX_COOKIE=$$(cat /opt/erlkoenig_elf/cookie) exec /opt/erlkoenig_elf/bin/erlkoenig-elfd foreground'
+
+## Dedicated service user (not root)
+## Create with: useradd --system --no-create-home --shell /usr/sbin/nologin erlkoenig
+User=erlkoenig
+Group=erlkoenig
+
+## EPMD hardening: bind to localhost only
+## For cluster: set to internal interface IP (e.g., 10.0.0.1)
+## Loopback remains implicitly available regardless of this setting
+Environment=ERL_EPMD_ADDRESS=127.0.0.1
+Environment=ERL_EPMD_PORT=4369
+
+## Start: export cookie, then exec into release wrapper
+ExecStart=/bin/sh -ec '\
+    export RELX_COOKIE="$$(cat /opt/erlkoenig_elf/cookie)"; \
+    exec /opt/erlkoenig_elf/bin/erlkoenig_elf foreground'
+
+## Graceful shutdown
 KillSignal=SIGTERM
 TimeoutStopSec=15
+
+## Restart policy
 Restart=on-failure
 RestartSec=5
 
+## Directories (systemd creates with correct owner)
 RuntimeDirectory=erlkoenig_elf
 RuntimeDirectoryMode=0755
+StateDirectory=erlkoenig_elf
+StateDirectoryMode=0750
 
+## File descriptors
 LimitNOFILE=65536
 
-# Security hardening
+## Security hardening
 NoNewPrivileges=yes
 ProtectHome=yes
 PrivateTmp=yes

@@ -1,6 +1,7 @@
 .PHONY: all compile test dialyzer check release clean install uninstall tag
 
 PREFIX ?= /opt/erlkoenig_elf
+SERVICE_USER ?= erlkoenig
 RELEASE_DIR = _build/prod/rel/erlkoenig_elf
 
 # ── Build ────────────────────────────────────────────────
@@ -29,27 +30,56 @@ release: compile
 
 install: release
 	@echo "Installing to $(PREFIX) ..."
+	@# Service user (idempotent)
+	id -u $(SERVICE_USER) >/dev/null 2>&1 || \
+		useradd --system --no-create-home --shell /usr/sbin/nologin $(SERVICE_USER)
+	@# Extract release
 	mkdir -p $(PREFIX)
 	tar xzf $(RELEASE_DIR)/erlkoenig_elf-*.tar.gz -C $(PREFIX)
-	chown -R root:root $(PREFIX)
-	chmod 755 $(PREFIX)/bin/erlkoenig_elf_run
-	chmod 755 $(PREFIX)/bin/erlkoenig_elf_remsh
-	chmod 644 $(PREFIX)/config/sys.config
-	chmod 644 $(PREFIX)/config/vm.args
+	@# Ownership: root owns files, service user can read
+	chown -R root:$(SERVICE_USER) $(PREFIX)
+	chmod 750 $(PREFIX)
+	chmod 755 $(PREFIX)/bin/erlkoenig_elf
+	@[ -f $(PREFIX)/bin/erlkoenig-elf ] && chmod 755 $(PREFIX)/bin/erlkoenig-elf || true
 	chmod 644 $(PREFIX)/dist/erlkoenig_elf.service
+	@# releases/0.1.0 must be writable — relx generates vm.args from vm.args.src at start
+	@REL_VSN_DIR=$$(ls -d $(PREFIX)/releases/*/start.boot 2>/dev/null | head -1 | xargs dirname 2>/dev/null); \
+	if [ -n "$$REL_VSN_DIR" ]; then \
+		chown $(SERVICE_USER):$(SERVICE_USER) "$$REL_VSN_DIR"; \
+		chmod 750 "$$REL_VSN_DIR"; \
+	fi
 	@# Cookie (first install only)
 	@if [ ! -f $(PREFIX)/cookie ]; then \
 		head -c 32 /dev/urandom | base64 | tr -d '/+=\n' | head -c 32 > $(PREFIX)/cookie; \
 		echo "  Cookie generated"; \
 	fi
-	chmod 400 $(PREFIX)/cookie
+	chown root:$(SERVICE_USER) $(PREFIX)/cookie
+	chmod 440 $(PREFIX)/cookie
+	@# Fix escript shebang to use bundled ERTS
+	@ERTS_BIN=$$(ls -d $(PREFIX)/erts-*/bin 2>/dev/null | head -1); \
+	if [ -n "$$ERTS_BIN" ] && [ -f $(PREFIX)/bin/erlkoenig-elf ]; then \
+		sed -i "1s|.*|#!$$ERTS_BIN/escript|" $(PREFIX)/bin/erlkoenig-elf; \
+		echo "  CLI shebang: $$ERTS_BIN/escript"; \
+	fi
 	@# Systemd symlink
 	@if [ -d /etc/systemd/system ]; then \
 		ln -sf $(PREFIX)/dist/erlkoenig_elf.service /etc/systemd/system/erlkoenig_elf.service; \
 		systemctl daemon-reload; \
 		echo "  Systemd unit symlinked"; \
 	fi
-	@echo "Done. Start with: sudo systemctl start erlkoenig_elf"
+	@# Hostname check
+	@if ! getent hosts "$$(hostname -s)" >/dev/null 2>&1; then \
+		echo ""; \
+		echo "  WARNING: hostname '$$(hostname -s)' not resolvable."; \
+		echo "  Add to /etc/hosts: 127.0.0.1 $$(hostname -s)"; \
+		echo "  Distribution will not work without this."; \
+		echo ""; \
+	fi
+	@echo ""
+	@echo "Done. Next steps:"
+	@echo "  1. Verify hostname:  getent hosts $$(hostname -s)"
+	@echo "  2. Test foreground:  sudo -u $(SERVICE_USER) RELX_COOKIE=\$$(cat $(PREFIX)/cookie) $(PREFIX)/bin/erlkoenig_elf foreground"
+	@echo "  3. Start service:    sudo systemctl start erlkoenig_elf"
 
 uninstall:
 	@echo "Uninstalling erlkoenig_elf ..."
@@ -58,7 +88,7 @@ uninstall:
 	rm -f /etc/systemd/system/erlkoenig_elf.service
 	-systemctl daemon-reload 2>/dev/null || true
 	rm -rf $(PREFIX)
-	@echo "Done."
+	@echo "Done. Note: User '$(SERVICE_USER)' not removed. Run: userdel $(SERVICE_USER)"
 
 # ── Version tag ──────────────────────────────────────────
 

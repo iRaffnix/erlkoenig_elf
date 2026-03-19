@@ -13,9 +13,11 @@ set -eu
 
 REPO="iRaffnix/erlkoenig_elf"
 PREFIX="/opt/erlkoenig_elf"
+SERVICE_USER="erlkoenig"
 VERSION=""
 LOCAL_DIR=""
 FORCE=false
+BIND_IP=""
 
 # ── Helpers ──────────────────────────────────────────────
 
@@ -33,11 +35,15 @@ usage() {
     echo "  --version VERSION   Download release from GitHub (e.g., v0.1.0)"
     echo "  --local DIR         Install from local directory (CI artifacts)"
     echo "  --prefix DIR        Installation directory (default: /opt/erlkoenig_elf)"
+    echo "  --bind IP           Bind distribution/epmd to this IP (default: auto-detect)"
+    echo "                      Auto-detection: first 10.x.x.x on a non-loopback interface"
+    echo "                      Falls back to 127.0.0.1 (single-node) if no private IP found"
     echo "  --force             Force reinstall even if same version"
     echo "  --help              Show this help"
     echo ""
     echo "Examples:"
     echo "  sudo sh install.sh --version v0.1.0"
+    echo "  sudo sh install.sh --version v0.1.0 --bind 10.20.30.4"
     echo "  gh run download <run-id> -D /tmp/artifacts"
     echo "  sudo sh install.sh --local /tmp/artifacts"
     exit 0
@@ -48,6 +54,7 @@ while [ $# -gt 0 ]; do
         --version) VERSION="$2"; shift 2 ;;
         --local)   LOCAL_DIR="$2"; shift 2 ;;
         --prefix)  PREFIX="$2"; shift 2 ;;
+        --bind)    BIND_IP="$2"; shift 2 ;;
         --force)   FORCE=true; shift ;;
         --help|-h) usage ;;
         *)         err "Unknown option: $1"; exit 1 ;;
@@ -77,11 +84,13 @@ if [ -n "$LOCAL_DIR" ] && [ ! -d "$LOCAL_DIR" ]; then
     exit 1
 fi
 
-# ── Hostname check ───────────────────────────────────────
+# ── Hostname check (required for -sname distribution) ───
 
-if ! getent hosts "$(hostname)" >/dev/null 2>&1; then
-    warn "Hostname '$(hostname)' not in /etc/hosts — remsh will fail"
-    warn "Fix: echo '127.0.0.1 $(hostname)' >> /etc/hosts"
+HOSTNAME=$(hostname -s)
+if ! getent hosts "$HOSTNAME" >/dev/null 2>&1; then
+    warn "Hostname '$HOSTNAME' not resolvable."
+    warn "  Add to /etc/hosts: 127.0.0.1 $HOSTNAME"
+    warn "  Distribution will not work without this."
 fi
 
 # ── Detect architecture ─────────────────────────────────
@@ -107,6 +116,39 @@ detect_target() {
     echo "${arch}-${libc}"
 }
 
+# ── Detect private network IP ────────────────────────────
+
+detect_private_ip() {
+    # Find first 10.x.x.x address on a non-loopback interface
+    # Works on Hetzner Cloud (enp7s0), AWS (eth1), GCP (ens4), etc.
+    ip -4 -o addr show scope global 2>/dev/null \
+        | awk '{print $4}' \
+        | sed 's|/.*||' \
+        | grep '^10\.' \
+        | head -1
+}
+
+resolve_bind_ip() {
+    if [ -n "$BIND_IP" ]; then
+        # Explicit --bind takes priority
+        echo "$BIND_IP"
+        return
+    fi
+
+    __private_ip=$(detect_private_ip)
+    if [ -n "$__private_ip" ]; then
+        echo "$__private_ip"
+    else
+        # No private network — single-node mode
+        echo "127.0.0.1"
+    fi
+}
+
+# Convert dotted IP (10.20.30.4) to Erlang tuple ({10,20,30,4})
+ip_to_erlang_tuple() {
+    echo "$1" | awk -F. '{printf "{%s,%s,%s,%s}", $1, $2, $3, $4}'
+}
+
 # ── Read installed version ───────────────────────────────
 
 installed_version() {
@@ -123,7 +165,7 @@ daemon_is_running() {
     fi
     # Native Erlang-Ping-Prüfung via relx
     if [ -f "$PREFIX/cookie" ] && [ -x "$PREFIX/bin/erlkoenig_elf" ]; then
-        RELX_COOKIE=$(cat "$PREFIX/cookie") "$PREFIX/bin/erlkoenig-elfd" ping >/dev/null 2>&1 && return 0
+        RELX_COOKIE=$(cat "$PREFIX/cookie") "$PREFIX/bin/erlkoenig_elf" ping >/dev/null 2>&1 && return 0
     fi
     return 1
 }
@@ -138,7 +180,7 @@ stop_daemon() {
     if daemon_is_running; then
         # Sanfter Stop über relx
         if [ -f "$PREFIX/cookie" ] && [ -x "$PREFIX/bin/erlkoenig_elf" ]; then
-            RELX_COOKIE=$(cat "$PREFIX/cookie") "$PREFIX/bin/erlkoenig-elfd" stop >/dev/null 2>&1 || true
+            RELX_COOKIE=$(cat "$PREFIX/cookie") "$PREFIX/bin/erlkoenig_elf" stop >/dev/null 2>&1 || true
         fi
     fi
 
@@ -166,7 +208,7 @@ start_daemon() {
     else
         # Start über relx als Daemon
         if [ -f "$PREFIX/cookie" ] && [ -x "$PREFIX/bin/erlkoenig_elf" ]; then
-            RELX_COOKIE=$(cat "$PREFIX/cookie") "$PREFIX/bin/erlkoenig-elfd" daemon
+            RELX_COOKIE=$(cat "$PREFIX/cookie") "$PREFIX/bin/erlkoenig_elf" daemon
         else
             warn "Could not start daemon manually: Binary or cookie missing."
         fi
@@ -270,6 +312,15 @@ if [ "$IS_UPDATE" = true ] && [ -f "$PREFIX/cookie" ]; then
     cp "$PREFIX/cookie" "$TMPDIR/cookie.preserve"
 fi
 
+# ── Clean extraction (updates) ──────────────────────────
+# Old files (stale boot scripts, BEAM modules from different OTP version)
+# can cause crashes. Wipe and re-extract cleanly.
+
+if [ "$IS_UPDATE" = true ]; then
+    info "Removing old release files ..."
+    rm -rf "${PREFIX:?}/bin" "${PREFIX:?}/erts-"* "${PREFIX:?}/lib" "${PREFIX:?}/releases" "${PREFIX:?}/dist"
+fi
+
 # ── Extract ──────────────────────────────────────────────
 
 mkdir -p "$PREFIX"
@@ -290,22 +341,30 @@ if [ -f "$TMPDIR/cookie.preserve" ]; then
     ok "Cookie preserved"
 fi
 
+# ── Service user ─────────────────────────────────────────
+
+if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    ok "Service user '$SERVICE_USER' created"
+fi
+
 # ── File permissions ─────────────────────────────────────
 
-chown -R root:root "$PREFIX"
-chmod 755 "$PREFIX"
+chown -R root:"$SERVICE_USER" "$PREFIX"
+chmod 750 "$PREFIX"
 [ -f "$PREFIX/bin/erlkoenig_elf" ] && chmod 755 "$PREFIX/bin/erlkoenig_elf"
 [ -f "$PREFIX/bin/erlkoenig-elf" ] && chmod 755 "$PREFIX/bin/erlkoenig-elf"
 [ -f "$PREFIX/dist/erlkoenig_elf.service" ] && chmod 644 "$PREFIX/dist/erlkoenig_elf.service"
 
-ok "Permissions set"
-
-# ── Symlink erlkoenig-elfd → erlkoenig_elf (daemon) ─────
-
-if [ -f "$PREFIX/bin/erlkoenig_elf" ] && [ ! -e "$PREFIX/bin/erlkoenig-elfd" ]; then
-    ln -s erlkoenig_elf "$PREFIX/bin/erlkoenig-elfd"
-    ok "Daemon symlink: bin/erlkoenig-elfd → erlkoenig_elf"
+# releases/0.1.0/ must be writable by service user — relx generates vm.args
+# from vm.args.src at startup and writes it here
+REL_VSN_DIR=$(ls -d "$PREFIX"/releases/*/start.boot 2>/dev/null | head -1 | xargs dirname 2>/dev/null || true)
+if [ -n "$REL_VSN_DIR" ]; then
+    chown "$SERVICE_USER":"$SERVICE_USER" "$REL_VSN_DIR"
+    chmod 750 "$REL_VSN_DIR"
 fi
+
+ok "Permissions set"
 
 # ── Fix escript shebang to use bundled ERTS ──────────────
 
@@ -315,13 +374,58 @@ if [ -n "$ERTS_BIN" ] && [ -f "$PREFIX/bin/erlkoenig-elf" ]; then
     ok "CLI shebang: ${ERTS_BIN}/escript"
 fi
 
+# ── Symlink CLI into PATH ────────────────────────────────
+
+if [ -f "$PREFIX/bin/erlkoenig-elf" ]; then
+    ln -sf "$PREFIX/bin/erlkoenig-elf" /usr/local/bin/erlkoenig-elf
+    ok "CLI symlink: /usr/local/bin/erlkoenig-elf"
+fi
+
+# ── Configure bind IP (distribution + epmd) ──────────────
+
+RESOLVED_IP=$(resolve_bind_ip)
+ERLANG_TUPLE=$(ip_to_erlang_tuple "$RESOLVED_IP")
+
+if [ "$RESOLVED_IP" = "127.0.0.1" ]; then
+    info "Bind IP: $RESOLVED_IP (single-node mode)"
+else
+    ok "Bind IP: $RESOLVED_IP (cluster-ready)"
+fi
+
+# Patch sys.config: inet_dist_use_interface
+REL_VSN_DIR=$(ls -d "$PREFIX"/releases/*/start.boot 2>/dev/null | head -1 | xargs dirname 2>/dev/null || true)
+if [ -n "$REL_VSN_DIR" ] && [ -f "$REL_VSN_DIR/sys.config" ]; then
+    sed -i "s/{inet_dist_use_interface, {[0-9,]*}}/{inet_dist_use_interface, $ERLANG_TUPLE}/" \
+        "$REL_VSN_DIR/sys.config"
+    ok "sys.config: inet_dist_use_interface -> $ERLANG_TUPLE"
+fi
+
+# Patch systemd unit: ERL_EPMD_ADDRESS
+if [ -f "$PREFIX/dist/erlkoenig_elf.service" ]; then
+    sed -i "s/ERL_EPMD_ADDRESS=.*/ERL_EPMD_ADDRESS=$RESOLVED_IP/" \
+        "$PREFIX/dist/erlkoenig_elf.service"
+    ok "systemd unit: ERL_EPMD_ADDRESS -> $RESOLVED_IP"
+fi
+
+# ── Disable cloud-init /etc/hosts management ────────────
+# Hetzner cloud-init overwrites /etc/hosts on every boot.
+# Without this, hostname resolution breaks after reboot.
+
+if [ -d /etc/cloud/cloud.cfg.d ]; then
+    if [ ! -f /etc/cloud/cloud.cfg.d/99-keep-hosts.cfg ]; then
+        echo "manage_etc_hosts: false" > /etc/cloud/cloud.cfg.d/99-keep-hosts.cfg
+        ok "cloud-init: /etc/hosts management disabled"
+    fi
+fi
+
 # ── Generate cookie (first install only) ─────────────────
 
 if [ ! -f "$PREFIX/cookie" ]; then
     head -c 32 /dev/urandom | base64 | tr -d '/+=\n' | head -c 32 > "$PREFIX/cookie"
     ok "Cookie generated"
 fi
-chmod 400 "$PREFIX/cookie"
+chown root:"$SERVICE_USER" "$PREFIX/cookie"
+chmod 440 "$PREFIX/cookie"
 
 # ── Systemd symlink ──────────────────────────────────────
 
@@ -351,11 +455,20 @@ echo "  Status:    sudo systemctl status erlkoenig_elf"
 echo "  Stop:      sudo systemctl stop erlkoenig_elf"
 echo "  Enable:    sudo systemctl enable erlkoenig_elf"
 echo "  Logs:      journalctl -u erlkoenig_elf -f"
-echo "  Shell:     sudo ERL_DIST_PORT=9103 RELX_COOKIE=\$(cat $PREFIX/cookie) $PREFIX/bin/erlkoenig-elfd remote_console"
+echo "  Shell:     sudo RELX_COOKIE=\$(sudo cat $PREFIX/cookie) $PREFIX/bin/erlkoenig_elf remote_console"
 echo ""
-echo "  Config:    $PREFIX/config/sys.config"
+echo "  Config:    $PREFIX/releases/*/sys.config"
 echo "  Socket:    /run/erlkoenig_elf/ctl.sock"
+echo "  Bind IP:   $RESOLVED_IP"
 echo ""
-if [ "$IS_UPDATE" = false ]; then
-    echo "  NOTE: Review config before starting. See ARCHITECTURE.md for details."
+if [ "$RESOLVED_IP" != "127.0.0.1" ]; then
+    echo "  NOTE: Distribution bound to $RESOLVED_IP (cluster-ready)."
+    echo "        Ensure /etc/hosts maps $(hostname -s) to $RESOLVED_IP"
+    echo "        and all cluster nodes share the same cookie."
+else
+    echo "  NOTE: Running in single-node mode (127.0.0.1)."
+    echo "        For cluster: re-run with --bind <private-ip>"
+    echo "        or add a 10.x.x.x interface (auto-detected)."
 fi
+echo ""
+echo "  See DEPLOYMENT.md for cluster setup and troubleshooting."
