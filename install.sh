@@ -3,7 +3,7 @@
 # ==================================
 #
 # Usage:
-#   sudo sh install.sh --version v0.1.0          # download from GitHub
+#   sudo sh install.sh --version v0.2.0          # download from GitHub
 #   sudo sh install.sh --local /path/to/artifacts # install from local dir
 #
 # Installs to /opt/erlkoenig_elf. Symlinks systemd unit.
@@ -32,7 +32,7 @@ usage() {
     echo "Usage: sudo sh install.sh [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --version VERSION   Download release from GitHub (e.g., v0.1.0)"
+    echo "  --version VERSION   Download release from GitHub (e.g., v0.2.0)"
     echo "  --local DIR         Install from local directory (CI artifacts)"
     echo "  --prefix DIR        Installation directory (default: /opt/erlkoenig_elf)"
     echo "  --bind IP           Bind distribution/epmd to this IP (default: auto-detect)"
@@ -42,8 +42,8 @@ usage() {
     echo "  --help              Show this help"
     echo ""
     echo "Examples:"
-    echo "  sudo sh install.sh --version v0.1.0"
-    echo "  sudo sh install.sh --version v0.1.0 --bind 10.20.30.4"
+    echo "  sudo sh install.sh --version v0.2.0"
+    echo "  sudo sh install.sh --version v0.2.0 --bind 10.20.30.4"
     echo "  gh run download <run-id> -D /tmp/artifacts"
     echo "  sudo sh install.sh --local /tmp/artifacts"
     exit 0
