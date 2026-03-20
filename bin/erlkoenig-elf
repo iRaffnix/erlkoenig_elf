@@ -112,6 +112,17 @@ run(ping, _Path) ->
             halt(1)
     end;
 
+run(seccomp, Path) ->
+    Request = {seccomp, list_to_binary(Path)},
+    case request(Request) of
+        {ok, Result} ->
+            %% seccomp_json returns pre-formatted JSON iodata — print directly
+            io:format("~s~n", [Result]);
+        {error, Reason} ->
+            print_error(Reason),
+            halt(1)
+    end;
+
 run(Command, Path) ->
     Request = {Command, list_to_binary(Path)},
     case request(Request) of
@@ -180,7 +191,7 @@ request_local(ping) ->
     {error, daemon_offline};
 
 request_local(version) ->
-    {version, <<"0.1.0 (local)">>};
+    {version, <<"0.2.0 (local)">>};
 
 request_local({analyze, Path}) ->
     with_elf(Path, fun(Elf) -> erlkoenig_elf:analyze(Elf) end);

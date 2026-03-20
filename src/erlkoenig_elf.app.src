@@ -1,6 +1,6 @@
 {application, erlkoenig_elf, [
     {description, "ELF64 binary analysis service"},
-    {vsn, "0.1.0"},
+    {vsn, "0.2.0"},
     {registered, [erlkoenig_elf_sup, erlkoenig_elf_srv]},
     {mod, {erlkoenig_elf_app, []}},
     {applications, [

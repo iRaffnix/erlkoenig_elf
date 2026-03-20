@@ -36,7 +36,7 @@ erlkoenig-elf patch /path/to/binary functionName --strategy ret_neg
 
 # Daemon-Status
 erlkoenig-elf ping         # → pong
-erlkoenig-elf version      # → 0.1.0
+erlkoenig-elf version      # → 0.2.0
 erlkoenig-elf help
 ```
 
@@ -165,7 +165,7 @@ Protokoll: 4-Byte Big-Endian Length-Prefix + Erlang ETF (`term_to_binary`/`binar
 
 ```erlang
 ping                                          → pong
-version                                       → {version, <<"0.1.0">>}
+version                                       → {version, <<"0.2.0">>}
 {analyze, <<"/path/to/bin">>}                 → {ok, Map}
 {syscalls, <<"/path/to/bin">>}                → {ok, Map}
 {seccomp, <<"/path/to/bin">>}                 → {ok, JsonIodata}
