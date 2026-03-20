@@ -17,15 +17,15 @@ jobs:
         target:
           - name: x86_64-linux
             runner: ubuntu-22.04
-            image: hexpm/elixir:1.18.3-erlang-27.3.3-debian-bookworm-20250407-slim
+            image: hexpm/elixir:1.18.4-erlang-28.4.1-debian-bookworm-20260316-slim
             deps: apt-get update && apt-get install -y git make curl
           - name: x86_64-musl
             runner: ubuntu-22.04
-            image: hexpm/elixir:1.18.3-erlang-27.3.3-alpine-3.21.3
+            image: hexpm/elixir:1.18.4-erlang-28.4.1-alpine-3.21.6
             deps: apk add --no-cache git make curl
           - name: aarch64-linux
             runner: ubuntu-22.04-arm
-            image: hexpm/elixir:1.18.3-erlang-27.3.3-debian-bookworm-20250407-slim
+            image: hexpm/elixir:1.18.4-erlang-28.4.1-debian-bookworm-20260316-slim
             deps: apt-get update && apt-get install -y git make curl
 
     container:

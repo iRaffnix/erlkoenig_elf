@@ -16,7 +16,7 @@ jobs:
       - name: Setup Beam
         uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
+          otp-version: '28'
           rebar3-version: '3.24'
 
       - name: Cache rebar3
@@ -25,12 +25,18 @@ jobs:
           path: |
             _build
             ~/.cache/rebar3
-          key: rebar3-otp27-${{ runner.os }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
+          key: rebar3-otp28-${{ runner.os }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
           restore-keys: |
-            rebar3-otp27-${{ runner.os }}-
+            rebar3-otp28-${{ runner.os }}-
 
       - name: Compile
         run: rebar3 compile
+
+      - name: Check formatting
+        run: rebar3 fmt --check
+
+      - name: Cross-reference analysis
+        run: rebar3 xref
 
       - name: EUnit
         run: rebar3 eunit
@@ -48,7 +54,7 @@ jobs:
       - name: Setup Beam
         uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
+          otp-version: '28'
           rebar3-version: '3.24'
 
       - name: Install test prerequisites
@@ -60,9 +66,9 @@ jobs:
           path: |
             _build
             ~/.cache/rebar3
-          key: rebar3-otp27-${{ runner.os }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
+          key: rebar3-otp28-${{ runner.os }}-${{ hashFiles('rebar.lock', 'rebar.config') }}
           restore-keys: |
-            rebar3-otp27-${{ runner.os }}-
+            rebar3-otp28-${{ runner.os }}-
 
       - name: Cache matrix binaries
         uses: actions/cache@v4
@@ -88,10 +94,10 @@ jobs:
       matrix:
         target:
           - name: x86_64-linux
-            image: hexpm/elixir:1.18.3-erlang-27.3.3-debian-bookworm-20250407-slim
+            image: hexpm/elixir:1.18.4-erlang-28.4.1-debian-bookworm-20260316-slim
             deps: apt-get update && apt-get install -y git make curl
           - name: x86_64-musl
-            image: hexpm/elixir:1.18.3-erlang-27.3.3-alpine-3.21.3
+            image: hexpm/elixir:1.18.4-erlang-28.4.1-alpine-3.21.6
             deps: apk add --no-cache git make curl
 
     container:

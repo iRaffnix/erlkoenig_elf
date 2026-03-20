@@ -1,30 +1,31 @@
 -module(elf_syscall_db_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% ---------------------------------------------------------------------------
 %% name/2
 %% ---------------------------------------------------------------------------
 
 name_x86_64_known_test() ->
-    ?assertEqual({ok, <<"read">>},  elf_syscall_db:name(x86_64, 0)),
+    ?assertEqual({ok, <<"read">>}, elf_syscall_db:name(x86_64, 0)),
     ?assertEqual({ok, <<"write">>}, elf_syscall_db:name(x86_64, 1)),
-    ?assertEqual({ok, <<"open">>},  elf_syscall_db:name(x86_64, 2)),
+    ?assertEqual({ok, <<"open">>}, elf_syscall_db:name(x86_64, 2)),
     ?assertEqual({ok, <<"close">>}, elf_syscall_db:name(x86_64, 3)),
-    ?assertEqual({ok, <<"mmap">>},  elf_syscall_db:name(x86_64, 9)),
+    ?assertEqual({ok, <<"mmap">>}, elf_syscall_db:name(x86_64, 9)),
     ?assertEqual({ok, <<"clone">>}, elf_syscall_db:name(x86_64, 56)),
     ?assertEqual({ok, <<"execve">>}, elf_syscall_db:name(x86_64, 59)),
-    ?assertEqual({ok, <<"exit">>},  elf_syscall_db:name(x86_64, 60)),
+    ?assertEqual({ok, <<"exit">>}, elf_syscall_db:name(x86_64, 60)),
     ?assertEqual({ok, <<"openat">>}, elf_syscall_db:name(x86_64, 257)),
     ?assertEqual({ok, <<"clone3">>}, elf_syscall_db:name(x86_64, 435)).
 
 name_aarch64_known_test() ->
-    ?assertEqual({ok, <<"openat">>},  elf_syscall_db:name(aarch64, 56)),
-    ?assertEqual({ok, <<"close">>},   elf_syscall_db:name(aarch64, 57)),
-    ?assertEqual({ok, <<"read">>},    elf_syscall_db:name(aarch64, 63)),
-    ?assertEqual({ok, <<"write">>},   elf_syscall_db:name(aarch64, 64)),
-    ?assertEqual({ok, <<"exit">>},    elf_syscall_db:name(aarch64, 93)),
-    ?assertEqual({ok, <<"socket">>},  elf_syscall_db:name(aarch64, 198)),
-    ?assertEqual({ok, <<"clone3">>},  elf_syscall_db:name(aarch64, 435)).
+    ?assertEqual({ok, <<"openat">>}, elf_syscall_db:name(aarch64, 56)),
+    ?assertEqual({ok, <<"close">>}, elf_syscall_db:name(aarch64, 57)),
+    ?assertEqual({ok, <<"read">>}, elf_syscall_db:name(aarch64, 63)),
+    ?assertEqual({ok, <<"write">>}, elf_syscall_db:name(aarch64, 64)),
+    ?assertEqual({ok, <<"exit">>}, elf_syscall_db:name(aarch64, 93)),
+    ?assertEqual({ok, <<"socket">>}, elf_syscall_db:name(aarch64, 198)),
+    ?assertEqual({ok, <<"clone3">>}, elf_syscall_db:name(aarch64, 435)).
 
 name_unknown_test() ->
     ?assertEqual(error, elf_syscall_db:name(x86_64, 99999)),
@@ -38,14 +39,14 @@ name_unsupported_arch_test() ->
 %% ---------------------------------------------------------------------------
 
 number_x86_64_test() ->
-    ?assertEqual({ok, 0},   elf_syscall_db:number(x86_64, <<"read">>)),
-    ?assertEqual({ok, 1},   elf_syscall_db:number(x86_64, <<"write">>)),
-    ?assertEqual({ok, 59},  elf_syscall_db:number(x86_64, <<"execve">>)),
+    ?assertEqual({ok, 0}, elf_syscall_db:number(x86_64, <<"read">>)),
+    ?assertEqual({ok, 1}, elf_syscall_db:number(x86_64, <<"write">>)),
+    ?assertEqual({ok, 59}, elf_syscall_db:number(x86_64, <<"execve">>)),
     ?assertEqual({ok, 257}, elf_syscall_db:number(x86_64, <<"openat">>)).
 
 number_aarch64_test() ->
-    ?assertEqual({ok, 63},  elf_syscall_db:number(aarch64, <<"read">>)),
-    ?assertEqual({ok, 64},  elf_syscall_db:number(aarch64, <<"write">>)),
+    ?assertEqual({ok, 63}, elf_syscall_db:number(aarch64, <<"read">>)),
+    ?assertEqual({ok, 64}, elf_syscall_db:number(aarch64, <<"write">>)),
     ?assertEqual({ok, 221}, elf_syscall_db:number(aarch64, <<"execve">>)).
 
 number_unknown_test() ->

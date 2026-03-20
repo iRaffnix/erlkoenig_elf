@@ -1,9 +1,27 @@
-%%% @doc Syscall number/name mapping database for Linux.
-%%%
-%%% Provides bidirectional lookup between syscall numbers and names
-%%% for x86_64 and aarch64 architectures, plus security-relevant
-%%% category classification.
+%%
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(elf_syscall_db).
+-moduledoc """
+Syscall number/name mapping database for Linux.
+
+Provides bidirectional lookup between syscall numbers and names
+for x86_64 and aarch64 architectures, plus security-relevant
+category classification.
+""".
 
 -export([name/2, number/2, all/1, category/1]).
 
@@ -14,7 +32,8 @@
 -spec name(x86_64 | aarch64, non_neg_integer()) -> {ok, binary()} | error.
 name(Arch, Nr) ->
     case table(Arch) of
-        error -> error;
+        error ->
+            error;
         {ok, Tab} ->
             case maps:find(Nr, Tab) of
                 {ok, _} = Ok -> Ok;
@@ -25,7 +44,8 @@ name(Arch, Nr) ->
 -spec number(x86_64 | aarch64, binary()) -> {ok, non_neg_integer()} | error.
 number(Arch, Name) ->
     case reverse_table(Arch) of
-        error -> error;
+        error ->
+            error;
         {ok, Tab} ->
             case maps:find(Name, Tab) of
                 {ok, _} = Ok -> Ok;
@@ -40,7 +60,8 @@ all(Arch) ->
         {ok, Tab} -> lists:sort(maps:to_list(Tab))
     end.
 
--spec category(binary()) -> network | filesystem | process | memory | ipc | time | signal | io | other.
+-spec category(binary()) ->
+    network | filesystem | process | memory | ipc | time | signal | io | other.
 category(Name) ->
     category_lookup(Name).
 
@@ -49,14 +70,15 @@ category(Name) ->
 %% ---------------------------------------------------------------------------
 
 -spec table(x86_64 | aarch64) -> {ok, #{non_neg_integer() => binary()}} | error.
-table(x86_64)  -> {ok, x86_64_table()};
+table(x86_64) -> {ok, x86_64_table()};
 table(aarch64) -> {ok, aarch64_table()};
-table(_)       -> error.
+table(_) -> error.
 
 -spec reverse_table(x86_64 | aarch64) -> {ok, #{binary() => non_neg_integer()}} | error.
 reverse_table(Arch) ->
     case table(Arch) of
-        error -> error;
+        error ->
+            error;
         {ok, Tab} ->
             Rev = maps:fold(fun(Nr, Name, Acc) -> Acc#{Name => Nr} end, #{}, Tab),
             {ok, Rev}
@@ -68,106 +90,106 @@ reverse_table(Arch) ->
 
 x86_64_table() ->
     #{
-        0   => <<"read">>,
-        1   => <<"write">>,
-        2   => <<"open">>,
-        3   => <<"close">>,
-        4   => <<"stat">>,
-        5   => <<"fstat">>,
-        6   => <<"lstat">>,
-        7   => <<"poll">>,
-        8   => <<"lseek">>,
-        9   => <<"mmap">>,
-        10  => <<"mprotect">>,
-        11  => <<"munmap">>,
-        12  => <<"brk">>,
-        13  => <<"rt_sigaction">>,
-        14  => <<"rt_sigprocmask">>,
-        15  => <<"rt_sigreturn">>,
-        16  => <<"ioctl">>,
-        17  => <<"pread64">>,
-        18  => <<"pwrite64">>,
-        19  => <<"readv">>,
-        20  => <<"writev">>,
-        21  => <<"access">>,
-        22  => <<"pipe">>,
-        23  => <<"select">>,
-        24  => <<"sched_yield">>,
-        25  => <<"mremap">>,
-        26  => <<"msync">>,
-        27  => <<"mincore">>,
-        28  => <<"madvise">>,
-        29  => <<"shmget">>,
-        30  => <<"shmat">>,
-        31  => <<"shmctl">>,
-        32  => <<"dup">>,
-        33  => <<"dup2">>,
-        34  => <<"pause">>,
-        35  => <<"nanosleep">>,
-        36  => <<"getitimer">>,
-        37  => <<"alarm">>,
-        38  => <<"setitimer">>,
-        39  => <<"getpid">>,
-        40  => <<"sendfile">>,
-        41  => <<"socket">>,
-        42  => <<"connect">>,
-        43  => <<"accept">>,
-        44  => <<"sendto">>,
-        45  => <<"recvfrom">>,
-        46  => <<"sendmsg">>,
-        47  => <<"recvmsg">>,
-        48  => <<"shutdown">>,
-        49  => <<"bind">>,
-        50  => <<"listen">>,
-        51  => <<"getsockname">>,
-        52  => <<"getpeername">>,
-        53  => <<"socketpair">>,
-        54  => <<"setsockopt">>,
-        55  => <<"getsockopt">>,
-        56  => <<"clone">>,
-        57  => <<"fork">>,
-        58  => <<"vfork">>,
-        59  => <<"execve">>,
-        60  => <<"exit">>,
-        61  => <<"wait4">>,
-        62  => <<"kill">>,
-        63  => <<"uname">>,
-        64  => <<"semget">>,
-        65  => <<"semop">>,
-        66  => <<"semctl">>,
-        67  => <<"shmdt">>,
-        68  => <<"msgget">>,
-        69  => <<"msgsnd">>,
-        70  => <<"msgrcv">>,
-        71  => <<"msgctl">>,
-        72  => <<"fcntl">>,
-        73  => <<"flock">>,
-        74  => <<"fsync">>,
-        75  => <<"fdatasync">>,
-        76  => <<"truncate">>,
-        77  => <<"ftruncate">>,
-        78  => <<"getdents">>,
-        79  => <<"getcwd">>,
-        80  => <<"chdir">>,
-        81  => <<"fchdir">>,
-        82  => <<"rename">>,
-        83  => <<"mkdir">>,
-        84  => <<"rmdir">>,
-        85  => <<"creat">>,
-        86  => <<"link">>,
-        87  => <<"unlink">>,
-        88  => <<"symlink">>,
-        89  => <<"readlink">>,
-        90  => <<"chmod">>,
-        91  => <<"fchmod">>,
-        92  => <<"chown">>,
-        93  => <<"fchown">>,
-        94  => <<"lchown">>,
-        95  => <<"umask">>,
-        96  => <<"gettimeofday">>,
-        97  => <<"getrlimit">>,
-        98  => <<"getrusage">>,
-        99  => <<"sysinfo">>,
+        0 => <<"read">>,
+        1 => <<"write">>,
+        2 => <<"open">>,
+        3 => <<"close">>,
+        4 => <<"stat">>,
+        5 => <<"fstat">>,
+        6 => <<"lstat">>,
+        7 => <<"poll">>,
+        8 => <<"lseek">>,
+        9 => <<"mmap">>,
+        10 => <<"mprotect">>,
+        11 => <<"munmap">>,
+        12 => <<"brk">>,
+        13 => <<"rt_sigaction">>,
+        14 => <<"rt_sigprocmask">>,
+        15 => <<"rt_sigreturn">>,
+        16 => <<"ioctl">>,
+        17 => <<"pread64">>,
+        18 => <<"pwrite64">>,
+        19 => <<"readv">>,
+        20 => <<"writev">>,
+        21 => <<"access">>,
+        22 => <<"pipe">>,
+        23 => <<"select">>,
+        24 => <<"sched_yield">>,
+        25 => <<"mremap">>,
+        26 => <<"msync">>,
+        27 => <<"mincore">>,
+        28 => <<"madvise">>,
+        29 => <<"shmget">>,
+        30 => <<"shmat">>,
+        31 => <<"shmctl">>,
+        32 => <<"dup">>,
+        33 => <<"dup2">>,
+        34 => <<"pause">>,
+        35 => <<"nanosleep">>,
+        36 => <<"getitimer">>,
+        37 => <<"alarm">>,
+        38 => <<"setitimer">>,
+        39 => <<"getpid">>,
+        40 => <<"sendfile">>,
+        41 => <<"socket">>,
+        42 => <<"connect">>,
+        43 => <<"accept">>,
+        44 => <<"sendto">>,
+        45 => <<"recvfrom">>,
+        46 => <<"sendmsg">>,
+        47 => <<"recvmsg">>,
+        48 => <<"shutdown">>,
+        49 => <<"bind">>,
+        50 => <<"listen">>,
+        51 => <<"getsockname">>,
+        52 => <<"getpeername">>,
+        53 => <<"socketpair">>,
+        54 => <<"setsockopt">>,
+        55 => <<"getsockopt">>,
+        56 => <<"clone">>,
+        57 => <<"fork">>,
+        58 => <<"vfork">>,
+        59 => <<"execve">>,
+        60 => <<"exit">>,
+        61 => <<"wait4">>,
+        62 => <<"kill">>,
+        63 => <<"uname">>,
+        64 => <<"semget">>,
+        65 => <<"semop">>,
+        66 => <<"semctl">>,
+        67 => <<"shmdt">>,
+        68 => <<"msgget">>,
+        69 => <<"msgsnd">>,
+        70 => <<"msgrcv">>,
+        71 => <<"msgctl">>,
+        72 => <<"fcntl">>,
+        73 => <<"flock">>,
+        74 => <<"fsync">>,
+        75 => <<"fdatasync">>,
+        76 => <<"truncate">>,
+        77 => <<"ftruncate">>,
+        78 => <<"getdents">>,
+        79 => <<"getcwd">>,
+        80 => <<"chdir">>,
+        81 => <<"fchdir">>,
+        82 => <<"rename">>,
+        83 => <<"mkdir">>,
+        84 => <<"rmdir">>,
+        85 => <<"creat">>,
+        86 => <<"link">>,
+        87 => <<"unlink">>,
+        88 => <<"symlink">>,
+        89 => <<"readlink">>,
+        90 => <<"chmod">>,
+        91 => <<"fchmod">>,
+        92 => <<"chown">>,
+        93 => <<"fchown">>,
+        94 => <<"lchown">>,
+        95 => <<"umask">>,
+        96 => <<"gettimeofday">>,
+        97 => <<"getrlimit">>,
+        98 => <<"getrusage">>,
+        99 => <<"sysinfo">>,
         100 => <<"times">>,
         101 => <<"ptrace">>,
         102 => <<"getuid">>,
@@ -452,19 +474,19 @@ x86_64_table() ->
 
 aarch64_table() ->
     #{
-        56  => <<"openat">>,
-        57  => <<"close">>,
-        63  => <<"read">>,
-        64  => <<"write">>,
-        66  => <<"writev">>,
-        78  => <<"readlinkat">>,
-        79  => <<"newfstatat">>,
-        80  => <<"fstat">>,
-        93  => <<"exit">>,
-        94  => <<"exit_group">>,
-        96  => <<"set_tid_address">>,
-        98  => <<"futex">>,
-        99  => <<"set_robust_list">>,
+        56 => <<"openat">>,
+        57 => <<"close">>,
+        63 => <<"read">>,
+        64 => <<"write">>,
+        66 => <<"writev">>,
+        78 => <<"readlinkat">>,
+        79 => <<"newfstatat">>,
+        80 => <<"fstat">>,
+        93 => <<"exit">>,
+        94 => <<"exit_group">>,
+        96 => <<"set_tid_address">>,
+        98 => <<"futex">>,
+        99 => <<"set_robust_list">>,
         113 => <<"clock_gettime">>,
         124 => <<"sched_yield">>,
         129 => <<"kill">>,
@@ -512,192 +534,191 @@ aarch64_table() ->
 %% Category classification
 %% ---------------------------------------------------------------------------
 
--spec category_lookup(binary()) -> network | filesystem | process | memory | ipc | time | signal | io | other.
+-spec category_lookup(binary()) ->
+    network | filesystem | process | memory | ipc | time | signal | io | other.
 %% Network
-category_lookup(<<"socket">>)      -> network;
-category_lookup(<<"connect">>)     -> network;
-category_lookup(<<"accept">>)      -> network;
-category_lookup(<<"accept4">>)     -> network;
-category_lookup(<<"bind">>)        -> network;
-category_lookup(<<"listen">>)      -> network;
-category_lookup(<<"sendto">>)      -> network;
-category_lookup(<<"recvfrom">>)    -> network;
-category_lookup(<<"sendmsg">>)     -> network;
-category_lookup(<<"recvmsg">>)     -> network;
-category_lookup(<<"shutdown">>)    -> network;
-category_lookup(<<"setsockopt">>)  -> network;
-category_lookup(<<"getsockopt">>)  -> network;
+category_lookup(<<"socket">>) -> network;
+category_lookup(<<"connect">>) -> network;
+category_lookup(<<"accept">>) -> network;
+category_lookup(<<"accept4">>) -> network;
+category_lookup(<<"bind">>) -> network;
+category_lookup(<<"listen">>) -> network;
+category_lookup(<<"sendto">>) -> network;
+category_lookup(<<"recvfrom">>) -> network;
+category_lookup(<<"sendmsg">>) -> network;
+category_lookup(<<"recvmsg">>) -> network;
+category_lookup(<<"shutdown">>) -> network;
+category_lookup(<<"setsockopt">>) -> network;
+category_lookup(<<"getsockopt">>) -> network;
 category_lookup(<<"getsockname">>) -> network;
 category_lookup(<<"getpeername">>) -> network;
-category_lookup(<<"socketpair">>)  -> network;
-category_lookup(<<"sendfile">>)    -> network;
-category_lookup(<<"recvmmsg">>)    -> network;
-category_lookup(<<"sendmmsg">>)    -> network;
-
+category_lookup(<<"socketpair">>) -> network;
+category_lookup(<<"sendfile">>) -> network;
+category_lookup(<<"recvmmsg">>) -> network;
+category_lookup(<<"sendmmsg">>) -> network;
 %% Filesystem
-category_lookup(<<"open">>)        -> filesystem;
-category_lookup(<<"openat">>)      -> filesystem;
-category_lookup(<<"openat2">>)     -> filesystem;
-category_lookup(<<"read">>)        -> filesystem;
-category_lookup(<<"write">>)       -> filesystem;
-category_lookup(<<"close">>)       -> filesystem;
+category_lookup(<<"open">>) -> filesystem;
+category_lookup(<<"openat">>) -> filesystem;
+category_lookup(<<"openat2">>) -> filesystem;
+category_lookup(<<"read">>) -> filesystem;
+category_lookup(<<"write">>) -> filesystem;
+category_lookup(<<"close">>) -> filesystem;
 category_lookup(<<"close_range">>) -> filesystem;
-category_lookup(<<"stat">>)        -> filesystem;
-category_lookup(<<"fstat">>)       -> filesystem;
-category_lookup(<<"lstat">>)       -> filesystem;
-category_lookup(<<"newfstatat">>)  -> filesystem;
-category_lookup(<<"statx">>)       -> filesystem;
-category_lookup(<<"statfs">>)      -> filesystem;
-category_lookup(<<"fstatfs">>)     -> filesystem;
-category_lookup(<<"lseek">>)       -> filesystem;
-category_lookup(<<"access">>)      -> filesystem;
-category_lookup(<<"faccessat">>)   -> filesystem;
-category_lookup(<<"faccessat2">>)  -> filesystem;
-category_lookup(<<"rename">>)      -> filesystem;
-category_lookup(<<"renameat">>)    -> filesystem;
-category_lookup(<<"renameat2">>)   -> filesystem;
-category_lookup(<<"mkdir">>)       -> filesystem;
-category_lookup(<<"mkdirat">>)     -> filesystem;
-category_lookup(<<"rmdir">>)       -> filesystem;
-category_lookup(<<"unlink">>)      -> filesystem;
-category_lookup(<<"unlinkat">>)    -> filesystem;
-category_lookup(<<"link">>)        -> filesystem;
-category_lookup(<<"linkat">>)      -> filesystem;
-category_lookup(<<"symlink">>)     -> filesystem;
-category_lookup(<<"symlinkat">>)   -> filesystem;
-category_lookup(<<"readlink">>)    -> filesystem;
-category_lookup(<<"readlinkat">>)  -> filesystem;
-category_lookup(<<"chmod">>)       -> filesystem;
-category_lookup(<<"fchmod">>)      -> filesystem;
-category_lookup(<<"fchmodat">>)    -> filesystem;
-category_lookup(<<"fchmodat2">>)   -> filesystem;
-category_lookup(<<"chown">>)       -> filesystem;
-category_lookup(<<"fchown">>)      -> filesystem;
-category_lookup(<<"fchownat">>)    -> filesystem;
-category_lookup(<<"lchown">>)      -> filesystem;
-category_lookup(<<"chdir">>)       -> filesystem;
-category_lookup(<<"fchdir">>)      -> filesystem;
-category_lookup(<<"getcwd">>)      -> filesystem;
-category_lookup(<<"creat">>)       -> filesystem;
-category_lookup(<<"mknod">>)       -> filesystem;
-category_lookup(<<"mknodat">>)     -> filesystem;
-category_lookup(<<"ftruncate">>)   -> filesystem;
-category_lookup(<<"truncate">>)    -> filesystem;
-category_lookup(<<"getdents">>)    -> filesystem;
-category_lookup(<<"getdents64">>)  -> filesystem;
-category_lookup(<<"fcntl">>)       -> filesystem;
-category_lookup(<<"flock">>)       -> filesystem;
-category_lookup(<<"fsync">>)       -> filesystem;
-category_lookup(<<"fdatasync">>)   -> filesystem;
-category_lookup(<<"readv">>)       -> filesystem;
-category_lookup(<<"writev">>)      -> filesystem;
-category_lookup(<<"pread64">>)     -> filesystem;
-category_lookup(<<"pwrite64">>)    -> filesystem;
-category_lookup(<<"preadv">>)      -> filesystem;
-category_lookup(<<"pwritev">>)     -> filesystem;
-category_lookup(<<"preadv2">>)     -> filesystem;
-category_lookup(<<"pwritev2">>)    -> filesystem;
-category_lookup(<<"utimensat">>)   -> filesystem;
-category_lookup(<<"futimesat">>)   -> filesystem;
-category_lookup(<<"utime">>)      -> filesystem;
-category_lookup(<<"utimes">>)      -> filesystem;
-category_lookup(<<"pivot_root">>)  -> filesystem;
-category_lookup(<<"chroot">>)      -> filesystem;
-category_lookup(<<"ioctl">>)       -> filesystem;
-category_lookup(<<"dup">>)         -> filesystem;
-category_lookup(<<"dup2">>)        -> filesystem;
-category_lookup(<<"dup3">>)        -> filesystem;
-category_lookup(<<"umask">>)       -> filesystem;
-category_lookup(<<"fallocate">>)   -> filesystem;
-category_lookup(<<"readahead">>)   -> filesystem;
-category_lookup(<<"fadvise64">>)   -> filesystem;
-category_lookup(<<"sync">>)        -> filesystem;
-category_lookup(<<"syncfs">>)      -> filesystem;
+category_lookup(<<"stat">>) -> filesystem;
+category_lookup(<<"fstat">>) -> filesystem;
+category_lookup(<<"lstat">>) -> filesystem;
+category_lookup(<<"newfstatat">>) -> filesystem;
+category_lookup(<<"statx">>) -> filesystem;
+category_lookup(<<"statfs">>) -> filesystem;
+category_lookup(<<"fstatfs">>) -> filesystem;
+category_lookup(<<"lseek">>) -> filesystem;
+category_lookup(<<"access">>) -> filesystem;
+category_lookup(<<"faccessat">>) -> filesystem;
+category_lookup(<<"faccessat2">>) -> filesystem;
+category_lookup(<<"rename">>) -> filesystem;
+category_lookup(<<"renameat">>) -> filesystem;
+category_lookup(<<"renameat2">>) -> filesystem;
+category_lookup(<<"mkdir">>) -> filesystem;
+category_lookup(<<"mkdirat">>) -> filesystem;
+category_lookup(<<"rmdir">>) -> filesystem;
+category_lookup(<<"unlink">>) -> filesystem;
+category_lookup(<<"unlinkat">>) -> filesystem;
+category_lookup(<<"link">>) -> filesystem;
+category_lookup(<<"linkat">>) -> filesystem;
+category_lookup(<<"symlink">>) -> filesystem;
+category_lookup(<<"symlinkat">>) -> filesystem;
+category_lookup(<<"readlink">>) -> filesystem;
+category_lookup(<<"readlinkat">>) -> filesystem;
+category_lookup(<<"chmod">>) -> filesystem;
+category_lookup(<<"fchmod">>) -> filesystem;
+category_lookup(<<"fchmodat">>) -> filesystem;
+category_lookup(<<"fchmodat2">>) -> filesystem;
+category_lookup(<<"chown">>) -> filesystem;
+category_lookup(<<"fchown">>) -> filesystem;
+category_lookup(<<"fchownat">>) -> filesystem;
+category_lookup(<<"lchown">>) -> filesystem;
+category_lookup(<<"chdir">>) -> filesystem;
+category_lookup(<<"fchdir">>) -> filesystem;
+category_lookup(<<"getcwd">>) -> filesystem;
+category_lookup(<<"creat">>) -> filesystem;
+category_lookup(<<"mknod">>) -> filesystem;
+category_lookup(<<"mknodat">>) -> filesystem;
+category_lookup(<<"ftruncate">>) -> filesystem;
+category_lookup(<<"truncate">>) -> filesystem;
+category_lookup(<<"getdents">>) -> filesystem;
+category_lookup(<<"getdents64">>) -> filesystem;
+category_lookup(<<"fcntl">>) -> filesystem;
+category_lookup(<<"flock">>) -> filesystem;
+category_lookup(<<"fsync">>) -> filesystem;
+category_lookup(<<"fdatasync">>) -> filesystem;
+category_lookup(<<"readv">>) -> filesystem;
+category_lookup(<<"writev">>) -> filesystem;
+category_lookup(<<"pread64">>) -> filesystem;
+category_lookup(<<"pwrite64">>) -> filesystem;
+category_lookup(<<"preadv">>) -> filesystem;
+category_lookup(<<"pwritev">>) -> filesystem;
+category_lookup(<<"preadv2">>) -> filesystem;
+category_lookup(<<"pwritev2">>) -> filesystem;
+category_lookup(<<"utimensat">>) -> filesystem;
+category_lookup(<<"futimesat">>) -> filesystem;
+category_lookup(<<"utime">>) -> filesystem;
+category_lookup(<<"utimes">>) -> filesystem;
+category_lookup(<<"pivot_root">>) -> filesystem;
+category_lookup(<<"chroot">>) -> filesystem;
+category_lookup(<<"ioctl">>) -> filesystem;
+category_lookup(<<"dup">>) -> filesystem;
+category_lookup(<<"dup2">>) -> filesystem;
+category_lookup(<<"dup3">>) -> filesystem;
+category_lookup(<<"umask">>) -> filesystem;
+category_lookup(<<"fallocate">>) -> filesystem;
+category_lookup(<<"readahead">>) -> filesystem;
+category_lookup(<<"fadvise64">>) -> filesystem;
+category_lookup(<<"sync">>) -> filesystem;
+category_lookup(<<"syncfs">>) -> filesystem;
 category_lookup(<<"sync_file_range">>) -> filesystem;
-category_lookup(<<"splice">>)      -> filesystem;
-category_lookup(<<"tee">>)         -> filesystem;
-category_lookup(<<"vmsplice">>)    -> filesystem;
+category_lookup(<<"splice">>) -> filesystem;
+category_lookup(<<"tee">>) -> filesystem;
+category_lookup(<<"vmsplice">>) -> filesystem;
 category_lookup(<<"copy_file_range">>) -> filesystem;
 category_lookup(<<"name_to_handle_at">>) -> filesystem;
 category_lookup(<<"open_by_handle_at">>) -> filesystem;
-category_lookup(<<"open_tree">>)   -> filesystem;
-category_lookup(<<"move_mount">>)  -> filesystem;
-category_lookup(<<"fsopen">>)      -> filesystem;
-category_lookup(<<"fsconfig">>)    -> filesystem;
-category_lookup(<<"fsmount">>)     -> filesystem;
-category_lookup(<<"fspick">>)      -> filesystem;
-category_lookup(<<"mount">>)       -> filesystem;
-category_lookup(<<"umount2">>)     -> filesystem;
+category_lookup(<<"open_tree">>) -> filesystem;
+category_lookup(<<"move_mount">>) -> filesystem;
+category_lookup(<<"fsopen">>) -> filesystem;
+category_lookup(<<"fsconfig">>) -> filesystem;
+category_lookup(<<"fsmount">>) -> filesystem;
+category_lookup(<<"fspick">>) -> filesystem;
+category_lookup(<<"mount">>) -> filesystem;
+category_lookup(<<"umount2">>) -> filesystem;
 category_lookup(<<"mount_setattr">>) -> filesystem;
-category_lookup(<<"quotactl">>)    -> filesystem;
+category_lookup(<<"quotactl">>) -> filesystem;
 category_lookup(<<"quotactl_fd">>) -> filesystem;
-category_lookup(<<"cachestat">>)   -> filesystem;
-category_lookup(<<"statmount">>)   -> filesystem;
-category_lookup(<<"listmount">>)   -> filesystem;
-category_lookup(<<"setxattr">>)    -> filesystem;
-category_lookup(<<"lsetxattr">>)   -> filesystem;
-category_lookup(<<"fsetxattr">>)   -> filesystem;
-category_lookup(<<"getxattr">>)    -> filesystem;
-category_lookup(<<"lgetxattr">>)   -> filesystem;
-category_lookup(<<"fgetxattr">>)   -> filesystem;
-category_lookup(<<"listxattr">>)   -> filesystem;
-category_lookup(<<"llistxattr">>)  -> filesystem;
-category_lookup(<<"flistxattr">>)  -> filesystem;
+category_lookup(<<"cachestat">>) -> filesystem;
+category_lookup(<<"statmount">>) -> filesystem;
+category_lookup(<<"listmount">>) -> filesystem;
+category_lookup(<<"setxattr">>) -> filesystem;
+category_lookup(<<"lsetxattr">>) -> filesystem;
+category_lookup(<<"fsetxattr">>) -> filesystem;
+category_lookup(<<"getxattr">>) -> filesystem;
+category_lookup(<<"lgetxattr">>) -> filesystem;
+category_lookup(<<"fgetxattr">>) -> filesystem;
+category_lookup(<<"listxattr">>) -> filesystem;
+category_lookup(<<"llistxattr">>) -> filesystem;
+category_lookup(<<"flistxattr">>) -> filesystem;
 category_lookup(<<"removexattr">>) -> filesystem;
 category_lookup(<<"lremovexattr">>) -> filesystem;
 category_lookup(<<"fremovexattr">>) -> filesystem;
 category_lookup(<<"remap_file_pages">>) -> filesystem;
-
 %% Process
-category_lookup(<<"clone">>)       -> process;
-category_lookup(<<"clone3">>)      -> process;
-category_lookup(<<"fork">>)        -> process;
-category_lookup(<<"vfork">>)       -> process;
-category_lookup(<<"execve">>)      -> process;
-category_lookup(<<"execveat">>)    -> process;
-category_lookup(<<"exit">>)        -> process;
-category_lookup(<<"exit_group">>)  -> process;
-category_lookup(<<"wait4">>)       -> process;
-category_lookup(<<"waitid">>)      -> process;
-category_lookup(<<"prctl">>)       -> process;
-category_lookup(<<"arch_prctl">>)  -> process;
-category_lookup(<<"ptrace">>)      -> process;
-category_lookup(<<"getpid">>)      -> process;
-category_lookup(<<"getppid">>)     -> process;
-category_lookup(<<"getuid">>)      -> process;
-category_lookup(<<"getgid">>)      -> process;
-category_lookup(<<"geteuid">>)     -> process;
-category_lookup(<<"getegid">>)     -> process;
-category_lookup(<<"gettid">>)      -> process;
-category_lookup(<<"setuid">>)      -> process;
-category_lookup(<<"setgid">>)      -> process;
-category_lookup(<<"setreuid">>)    -> process;
-category_lookup(<<"setregid">>)    -> process;
-category_lookup(<<"setresuid">>)   -> process;
-category_lookup(<<"getresuid">>)   -> process;
-category_lookup(<<"setresgid">>)   -> process;
-category_lookup(<<"getresgid">>)   -> process;
-category_lookup(<<"setfsuid">>)    -> process;
-category_lookup(<<"setfsgid">>)    -> process;
-category_lookup(<<"setpgid">>)     -> process;
-category_lookup(<<"getpgid">>)     -> process;
-category_lookup(<<"getpgrp">>)     -> process;
-category_lookup(<<"setsid">>)      -> process;
-category_lookup(<<"getsid">>)      -> process;
-category_lookup(<<"getgroups">>)   -> process;
-category_lookup(<<"setgroups">>)   -> process;
-category_lookup(<<"capget">>)      -> process;
-category_lookup(<<"capset">>)      -> process;
-category_lookup(<<"uname">>)       -> process;
-category_lookup(<<"getrlimit">>)   -> process;
-category_lookup(<<"setrlimit">>)   -> process;
-category_lookup(<<"prlimit64">>)   -> process;
-category_lookup(<<"getrusage">>)   -> process;
-category_lookup(<<"sysinfo">>)     -> process;
-category_lookup(<<"times">>)       -> process;
-category_lookup(<<"personality">>)  -> process;
-category_lookup(<<"getrandom">>)   -> process;
-category_lookup(<<"rseq">>)        -> process;
+category_lookup(<<"clone">>) -> process;
+category_lookup(<<"clone3">>) -> process;
+category_lookup(<<"fork">>) -> process;
+category_lookup(<<"vfork">>) -> process;
+category_lookup(<<"execve">>) -> process;
+category_lookup(<<"execveat">>) -> process;
+category_lookup(<<"exit">>) -> process;
+category_lookup(<<"exit_group">>) -> process;
+category_lookup(<<"wait4">>) -> process;
+category_lookup(<<"waitid">>) -> process;
+category_lookup(<<"prctl">>) -> process;
+category_lookup(<<"arch_prctl">>) -> process;
+category_lookup(<<"ptrace">>) -> process;
+category_lookup(<<"getpid">>) -> process;
+category_lookup(<<"getppid">>) -> process;
+category_lookup(<<"getuid">>) -> process;
+category_lookup(<<"getgid">>) -> process;
+category_lookup(<<"geteuid">>) -> process;
+category_lookup(<<"getegid">>) -> process;
+category_lookup(<<"gettid">>) -> process;
+category_lookup(<<"setuid">>) -> process;
+category_lookup(<<"setgid">>) -> process;
+category_lookup(<<"setreuid">>) -> process;
+category_lookup(<<"setregid">>) -> process;
+category_lookup(<<"setresuid">>) -> process;
+category_lookup(<<"getresuid">>) -> process;
+category_lookup(<<"setresgid">>) -> process;
+category_lookup(<<"getresgid">>) -> process;
+category_lookup(<<"setfsuid">>) -> process;
+category_lookup(<<"setfsgid">>) -> process;
+category_lookup(<<"setpgid">>) -> process;
+category_lookup(<<"getpgid">>) -> process;
+category_lookup(<<"getpgrp">>) -> process;
+category_lookup(<<"setsid">>) -> process;
+category_lookup(<<"getsid">>) -> process;
+category_lookup(<<"getgroups">>) -> process;
+category_lookup(<<"setgroups">>) -> process;
+category_lookup(<<"capget">>) -> process;
+category_lookup(<<"capset">>) -> process;
+category_lookup(<<"uname">>) -> process;
+category_lookup(<<"getrlimit">>) -> process;
+category_lookup(<<"setrlimit">>) -> process;
+category_lookup(<<"prlimit64">>) -> process;
+category_lookup(<<"getrusage">>) -> process;
+category_lookup(<<"sysinfo">>) -> process;
+category_lookup(<<"times">>) -> process;
+category_lookup(<<"personality">>) -> process;
+category_lookup(<<"getrandom">>) -> process;
+category_lookup(<<"rseq">>) -> process;
 category_lookup(<<"set_tid_address">>) -> process;
 category_lookup(<<"set_robust_list">>) -> process;
 category_lookup(<<"get_robust_list">>) -> process;
@@ -713,149 +734,143 @@ category_lookup(<<"sched_setaffinity">>) -> process;
 category_lookup(<<"sched_getaffinity">>) -> process;
 category_lookup(<<"sched_setattr">>) -> process;
 category_lookup(<<"sched_getattr">>) -> process;
-category_lookup(<<"unshare">>)     -> process;
-category_lookup(<<"getcpu">>)      -> process;
-category_lookup(<<"seccomp">>)     -> process;
+category_lookup(<<"unshare">>) -> process;
+category_lookup(<<"getcpu">>) -> process;
+category_lookup(<<"seccomp">>) -> process;
 category_lookup(<<"pidfd_send_signal">>) -> process;
-category_lookup(<<"pidfd_open">>)  -> process;
+category_lookup(<<"pidfd_open">>) -> process;
 category_lookup(<<"pidfd_getfd">>) -> process;
 category_lookup(<<"process_vm_readv">>) -> process;
 category_lookup(<<"process_vm_writev">>) -> process;
 category_lookup(<<"process_madvise">>) -> process;
 category_lookup(<<"process_mrelease">>) -> process;
-category_lookup(<<"kcmp">>)        -> process;
-category_lookup(<<"acct">>)        -> process;
+category_lookup(<<"kcmp">>) -> process;
+category_lookup(<<"acct">>) -> process;
 category_lookup(<<"getpriority">>) -> process;
 category_lookup(<<"setpriority">>) -> process;
-
 %% Memory
-category_lookup(<<"mmap">>)        -> memory;
-category_lookup(<<"munmap">>)      -> memory;
-category_lookup(<<"mprotect">>)    -> memory;
-category_lookup(<<"brk">>)         -> memory;
-category_lookup(<<"madvise">>)     -> memory;
-category_lookup(<<"mremap">>)      -> memory;
-category_lookup(<<"msync">>)       -> memory;
-category_lookup(<<"mincore">>)     -> memory;
-category_lookup(<<"mlock">>)       -> memory;
-category_lookup(<<"munlock">>)     -> memory;
-category_lookup(<<"mlockall">>)    -> memory;
-category_lookup(<<"munlockall">>)  -> memory;
-category_lookup(<<"mlock2">>)      -> memory;
-category_lookup(<<"mbind">>)       -> memory;
+category_lookup(<<"mmap">>) -> memory;
+category_lookup(<<"munmap">>) -> memory;
+category_lookup(<<"mprotect">>) -> memory;
+category_lookup(<<"brk">>) -> memory;
+category_lookup(<<"madvise">>) -> memory;
+category_lookup(<<"mremap">>) -> memory;
+category_lookup(<<"msync">>) -> memory;
+category_lookup(<<"mincore">>) -> memory;
+category_lookup(<<"mlock">>) -> memory;
+category_lookup(<<"munlock">>) -> memory;
+category_lookup(<<"mlockall">>) -> memory;
+category_lookup(<<"munlockall">>) -> memory;
+category_lookup(<<"mlock2">>) -> memory;
+category_lookup(<<"mbind">>) -> memory;
 category_lookup(<<"set_mempolicy">>) -> memory;
 category_lookup(<<"get_mempolicy">>) -> memory;
 category_lookup(<<"set_mempolicy_home_node">>) -> memory;
-category_lookup(<<"move_pages">>)  -> memory;
+category_lookup(<<"move_pages">>) -> memory;
 category_lookup(<<"migrate_pages">>) -> memory;
 category_lookup(<<"pkey_mprotect">>) -> memory;
-category_lookup(<<"pkey_alloc">>)  -> memory;
-category_lookup(<<"pkey_free">>)   -> memory;
+category_lookup(<<"pkey_alloc">>) -> memory;
+category_lookup(<<"pkey_free">>) -> memory;
 category_lookup(<<"memfd_create">>) -> memory;
 category_lookup(<<"memfd_secret">>) -> memory;
-category_lookup(<<"membarrier">>)  -> memory;
+category_lookup(<<"membarrier">>) -> memory;
 category_lookup(<<"userfaultfd">>) -> memory;
-category_lookup(<<"mseal">>)       -> memory;
+category_lookup(<<"mseal">>) -> memory;
 category_lookup(<<"map_shadow_stack">>) -> memory;
-
 %% IPC
-category_lookup(<<"pipe">>)        -> ipc;
-category_lookup(<<"pipe2">>)       -> ipc;
-category_lookup(<<"futex">>)       -> ipc;
+category_lookup(<<"pipe">>) -> ipc;
+category_lookup(<<"pipe2">>) -> ipc;
+category_lookup(<<"futex">>) -> ipc;
 category_lookup(<<"futex_waitv">>) -> ipc;
-category_lookup(<<"futex_wake">>)  -> ipc;
-category_lookup(<<"futex_wait">>)  -> ipc;
+category_lookup(<<"futex_wake">>) -> ipc;
+category_lookup(<<"futex_wait">>) -> ipc;
 category_lookup(<<"futex_requeue">>) -> ipc;
-category_lookup(<<"eventfd">>)     -> ipc;
-category_lookup(<<"eventfd2">>)    -> ipc;
-category_lookup(<<"shmget">>)      -> ipc;
-category_lookup(<<"shmat">>)       -> ipc;
-category_lookup(<<"shmctl">>)      -> ipc;
-category_lookup(<<"shmdt">>)       -> ipc;
-category_lookup(<<"semget">>)      -> ipc;
-category_lookup(<<"semop">>)       -> ipc;
-category_lookup(<<"semctl">>)      -> ipc;
-category_lookup(<<"semtimedop">>)  -> ipc;
-category_lookup(<<"msgget">>)      -> ipc;
-category_lookup(<<"msgsnd">>)      -> ipc;
-category_lookup(<<"msgrcv">>)      -> ipc;
-category_lookup(<<"msgctl">>)      -> ipc;
-category_lookup(<<"mq_open">>)     -> ipc;
-category_lookup(<<"mq_unlink">>)   -> ipc;
+category_lookup(<<"eventfd">>) -> ipc;
+category_lookup(<<"eventfd2">>) -> ipc;
+category_lookup(<<"shmget">>) -> ipc;
+category_lookup(<<"shmat">>) -> ipc;
+category_lookup(<<"shmctl">>) -> ipc;
+category_lookup(<<"shmdt">>) -> ipc;
+category_lookup(<<"semget">>) -> ipc;
+category_lookup(<<"semop">>) -> ipc;
+category_lookup(<<"semctl">>) -> ipc;
+category_lookup(<<"semtimedop">>) -> ipc;
+category_lookup(<<"msgget">>) -> ipc;
+category_lookup(<<"msgsnd">>) -> ipc;
+category_lookup(<<"msgrcv">>) -> ipc;
+category_lookup(<<"msgctl">>) -> ipc;
+category_lookup(<<"mq_open">>) -> ipc;
+category_lookup(<<"mq_unlink">>) -> ipc;
 category_lookup(<<"mq_timedsend">>) -> ipc;
 category_lookup(<<"mq_timedreceive">>) -> ipc;
-category_lookup(<<"mq_notify">>)   -> ipc;
+category_lookup(<<"mq_notify">>) -> ipc;
 category_lookup(<<"mq_getsetattr">>) -> ipc;
-
 %% Signal
-category_lookup(<<"rt_sigaction">>)   -> signal;
+category_lookup(<<"rt_sigaction">>) -> signal;
 category_lookup(<<"rt_sigprocmask">>) -> signal;
-category_lookup(<<"rt_sigreturn">>)   -> signal;
-category_lookup(<<"rt_sigpending">>)  -> signal;
+category_lookup(<<"rt_sigreturn">>) -> signal;
+category_lookup(<<"rt_sigpending">>) -> signal;
 category_lookup(<<"rt_sigtimedwait">>) -> signal;
 category_lookup(<<"rt_sigqueueinfo">>) -> signal;
-category_lookup(<<"rt_sigsuspend">>)  -> signal;
+category_lookup(<<"rt_sigsuspend">>) -> signal;
 category_lookup(<<"rt_tgsigqueueinfo">>) -> signal;
-category_lookup(<<"sigaltstack">>)    -> signal;
-category_lookup(<<"kill">>)           -> signal;
-category_lookup(<<"tkill">>)          -> signal;
-category_lookup(<<"tgkill">>)         -> signal;
-category_lookup(<<"alarm">>)          -> signal;
-category_lookup(<<"signalfd">>)       -> signal;
-category_lookup(<<"signalfd4">>)      -> signal;
-category_lookup(<<"pause">>)          -> signal;
-
+category_lookup(<<"sigaltstack">>) -> signal;
+category_lookup(<<"kill">>) -> signal;
+category_lookup(<<"tkill">>) -> signal;
+category_lookup(<<"tgkill">>) -> signal;
+category_lookup(<<"alarm">>) -> signal;
+category_lookup(<<"signalfd">>) -> signal;
+category_lookup(<<"signalfd4">>) -> signal;
+category_lookup(<<"pause">>) -> signal;
 %% Time
-category_lookup(<<"clock_gettime">>)  -> time;
-category_lookup(<<"clock_settime">>)  -> time;
-category_lookup(<<"clock_getres">>)   -> time;
+category_lookup(<<"clock_gettime">>) -> time;
+category_lookup(<<"clock_settime">>) -> time;
+category_lookup(<<"clock_getres">>) -> time;
 category_lookup(<<"clock_nanosleep">>) -> time;
-category_lookup(<<"clock_adjtime">>)  -> time;
-category_lookup(<<"nanosleep">>)      -> time;
-category_lookup(<<"gettimeofday">>)   -> time;
-category_lookup(<<"settimeofday">>)   -> time;
-category_lookup(<<"adjtimex">>)       -> time;
-category_lookup(<<"getitimer">>)      -> time;
-category_lookup(<<"setitimer">>)      -> time;
-category_lookup(<<"timer_create">>)   -> time;
-category_lookup(<<"timer_settime">>)  -> time;
-category_lookup(<<"timer_gettime">>)  -> time;
+category_lookup(<<"clock_adjtime">>) -> time;
+category_lookup(<<"nanosleep">>) -> time;
+category_lookup(<<"gettimeofday">>) -> time;
+category_lookup(<<"settimeofday">>) -> time;
+category_lookup(<<"adjtimex">>) -> time;
+category_lookup(<<"getitimer">>) -> time;
+category_lookup(<<"setitimer">>) -> time;
+category_lookup(<<"timer_create">>) -> time;
+category_lookup(<<"timer_settime">>) -> time;
+category_lookup(<<"timer_gettime">>) -> time;
 category_lookup(<<"timer_getoverrun">>) -> time;
-category_lookup(<<"timer_delete">>)   -> time;
+category_lookup(<<"timer_delete">>) -> time;
 category_lookup(<<"timerfd_create">>) -> time;
 category_lookup(<<"timerfd_settime">>) -> time;
 category_lookup(<<"timerfd_gettime">>) -> time;
-category_lookup(<<"time">>)           -> time;
-
+category_lookup(<<"time">>) -> time;
 %% IO
-category_lookup(<<"epoll_wait">>)     -> io;
-category_lookup(<<"epoll_pwait">>)    -> io;
-category_lookup(<<"epoll_pwait2">>)   -> io;
-category_lookup(<<"epoll_ctl">>)      -> io;
-category_lookup(<<"epoll_create">>)   -> io;
-category_lookup(<<"epoll_create1">>)  -> io;
-category_lookup(<<"epoll_ctl_old">>)  -> io;
+category_lookup(<<"epoll_wait">>) -> io;
+category_lookup(<<"epoll_pwait">>) -> io;
+category_lookup(<<"epoll_pwait2">>) -> io;
+category_lookup(<<"epoll_ctl">>) -> io;
+category_lookup(<<"epoll_create">>) -> io;
+category_lookup(<<"epoll_create1">>) -> io;
+category_lookup(<<"epoll_ctl_old">>) -> io;
 category_lookup(<<"epoll_wait_old">>) -> io;
-category_lookup(<<"select">>)         -> io;
-category_lookup(<<"pselect6">>)       -> io;
-category_lookup(<<"poll">>)           -> io;
-category_lookup(<<"ppoll">>)          -> io;
-category_lookup(<<"io_setup">>)       -> io;
-category_lookup(<<"io_destroy">>)     -> io;
-category_lookup(<<"io_getevents">>)   -> io;
-category_lookup(<<"io_submit">>)      -> io;
-category_lookup(<<"io_cancel">>)      -> io;
-category_lookup(<<"io_pgetevents">>)  -> io;
+category_lookup(<<"select">>) -> io;
+category_lookup(<<"pselect6">>) -> io;
+category_lookup(<<"poll">>) -> io;
+category_lookup(<<"ppoll">>) -> io;
+category_lookup(<<"io_setup">>) -> io;
+category_lookup(<<"io_destroy">>) -> io;
+category_lookup(<<"io_getevents">>) -> io;
+category_lookup(<<"io_submit">>) -> io;
+category_lookup(<<"io_cancel">>) -> io;
+category_lookup(<<"io_pgetevents">>) -> io;
 category_lookup(<<"io_uring_setup">>) -> io;
 category_lookup(<<"io_uring_enter">>) -> io;
 category_lookup(<<"io_uring_register">>) -> io;
 category_lookup(<<"perf_event_open">>) -> io;
-category_lookup(<<"inotify_init">>)   -> io;
+category_lookup(<<"inotify_init">>) -> io;
 category_lookup(<<"inotify_add_watch">>) -> io;
 category_lookup(<<"inotify_rm_watch">>) -> io;
-category_lookup(<<"inotify_init1">>)  -> io;
-category_lookup(<<"fanotify_init">>)  -> io;
-category_lookup(<<"fanotify_mark">>)  -> io;
-
+category_lookup(<<"inotify_init1">>) -> io;
+category_lookup(<<"fanotify_init">>) -> io;
+category_lookup(<<"fanotify_mark">>) -> io;
 %% Other / system administration
-category_lookup(_)                    -> other.
+category_lookup(_) -> other.

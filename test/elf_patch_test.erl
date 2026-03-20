@@ -1,5 +1,6 @@
 -module(elf_patch_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 
 %% ---------------------------------------------------------------------------
@@ -25,20 +26,28 @@ build_test_elf_aarch64() ->
     build_test_elf_arch(aarch64).
 
 build_test_elf_arch(Arch) ->
-    Machine = case Arch of
-        x86_64  -> ?EM_X86_64;
-        aarch64 -> ?EM_AARCH64
-    end,
+    Machine =
+        case Arch of
+            x86_64 -> ?EM_X86_64;
+            aarch64 -> ?EM_AARCH64
+        end,
 
     %% --- String tables ---
-    ShStrTab = <<0,
-                 ".text", 0,        % idx 1
-                 ".strtab", 0,      % idx 7
-                 ".symtab", 0>>,    % idx 15
+    ShStrTab =
+        <<0,
+            % idx 1
+            ".text", 0,
+            % idx 7
+            ".strtab", 0,
+            % idx 15
+            ".symtab", 0>>,
 
-    SymStrTab = <<0,
-                  "test_func", 0,   % idx 1
-                  "small_func", 0>>,% idx 11
+    SymStrTab =
+        <<0,
+            % idx 1
+            "test_func", 0,
+            % idx 11
+            "small_func", 0>>,
 
     %% --- .text content: 32 bytes of NOP ---
     TextSize = 32,
@@ -47,11 +56,23 @@ build_test_elf_arch(Arch) ->
     %% --- Symbols ---
     Sym0 = sym_entry(0, 0, 0, 0, 0, 0),
     %% test_func: global func, section 1, vaddr 0x400000, size 16
-    Sym1 = sym_entry(1, st_info(?STB_GLOBAL, ?STT_FUNC), 0, 1,
-                     16#400000, 16),
+    Sym1 = sym_entry(
+        1,
+        st_info(?STB_GLOBAL, ?STT_FUNC),
+        0,
+        1,
+        16#400000,
+        16
+    ),
     %% small_func: global func, section 1, vaddr 0x400010, size 2
-    Sym2 = sym_entry(11, st_info(?STB_GLOBAL, ?STT_FUNC), 0, 1,
-                     16#400010, 2),
+    Sym2 = sym_entry(
+        11,
+        st_info(?STB_GLOBAL, ?STT_FUNC),
+        0,
+        1,
+        16#400010,
+        2
+    ),
     SymTab = <<Sym0/binary, Sym1/binary, Sym2/binary>>,
 
     %% --- Layout ---
@@ -75,80 +96,114 @@ build_test_elf_arch(Arch) ->
 
     %% --- Section headers ---
     Sh0 = shdr_entry(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Sh1 = shdr_entry(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     TextVaddr, TextOff, TextSize, 0, 0, 16, 0),
-    Sh2 = shdr_entry(7, ?SHT_STRTAB, 0, 0, ShStrTabOff,
-                     byte_size(ShStrTab), 0, 0, 1, 0),
-    Sh3 = shdr_entry(7, ?SHT_STRTAB, 0, 0, SymStrTabOff,
-                     byte_size(SymStrTab), 0, 0, 1, 0),
-    Sh4 = shdr_entry(15, ?SHT_SYMTAB, 0, 0, SymTabOff,
-                     byte_size(SymTab), 3, 0, 8, ?SYM_SIZE),
+    Sh1 = shdr_entry(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        TextVaddr,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
+    Sh2 = shdr_entry(
+        7,
+        ?SHT_STRTAB,
+        0,
+        0,
+        ShStrTabOff,
+        byte_size(ShStrTab),
+        0,
+        0,
+        1,
+        0
+    ),
+    Sh3 = shdr_entry(
+        7,
+        ?SHT_STRTAB,
+        0,
+        0,
+        SymStrTabOff,
+        byte_size(SymStrTab),
+        0,
+        0,
+        1,
+        0
+    ),
+    Sh4 = shdr_entry(
+        15,
+        ?SHT_SYMTAB,
+        0,
+        0,
+        SymTabOff,
+        byte_size(SymTab),
+        3,
+        0,
+        8,
+        ?SYM_SIZE
+    ),
 
     %% --- ELF header ---
-    Header = elf_header_le(?ET_EXEC, Machine, TextVaddr, PhOff,
-                           ShOff, 1, 5, 2),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        Machine,
+        TextVaddr,
+        PhOff,
+        ShOff,
+        1,
+        5,
+        2
+    ),
 
     %% --- PT_LOAD covering .text ---
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   TextVaddr, TextVaddr, TextSize, TextSize, 16#1000),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        TextVaddr,
+        TextVaddr,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary,
-      ShStrTab/binary, SymStrTab/binary, SymTab/binary, Pad/binary,
-      Sh0/binary, Sh1/binary, Sh2/binary, Sh3/binary, Sh4/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, ShStrTab/binary, SymStrTab/binary,
+        SymTab/binary, Pad/binary, Sh0/binary, Sh1/binary, Sh2/binary, Sh3/binary, Sh4/binary>>.
 
 %% ---------------------------------------------------------------------------
 %% Binary construction helpers
 %% ---------------------------------------------------------------------------
 
 elf_header_le(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
-    <<16#7F, "ELF",
-      2:8, 1:8, 1:8, 0:8,
-      0:64,
-      Type:16/little,
-      Machine:16/little,
-      1:32/little,
-      Entry:64/little,
-      PhOff:64/little,
-      ShOff:64/little,
-      0:32/little,
-      64:16/little,
-      56:16/little,
-      PhNum:16/little,
-      64:16/little,
-      ShNum:16/little,
-      ShStrNdx:16/little>>.
+    <<16#7F, "ELF", 2:8, 1:8, 1:8, 0:8, 0:64, Type:16/little, Machine:16/little, 1:32/little,
+        Entry:64/little, PhOff:64/little, ShOff:64/little, 0:32/little, 64:16/little, 56:16/little,
+        PhNum:16/little, 64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
 
 phdr_le(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/little,
-      PFlags:32/little,
-      POffset:64/little,
-      PVaddr:64/little,
-      PPaddr:64/little,
-      PFilesz:64/little,
-      PMemsz:64/little,
-      PAlign:64/little>>.
+    <<PType:32/little, PFlags:32/little, POffset:64/little, PVaddr:64/little, PPaddr:64/little,
+        PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
 
-shdr_entry(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-           ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/little,
-      ShType:32/little,
-      ShFlags:64/little,
-      ShAddr:64/little,
-      ShOffset:64/little,
-      ShSize:64/little,
-      ShLink:32/little,
-      ShInfo:32/little,
-      ShAddralign:64/little,
-      ShEntsize:64/little>>.
+shdr_entry(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/little, ShType:32/little, ShFlags:64/little, ShAddr:64/little, ShOffset:64/little,
+        ShSize:64/little, ShLink:32/little, ShInfo:32/little, ShAddralign:64/little,
+        ShEntsize:64/little>>.
 
 sym_entry(Name, Info, Other, Shndx, Value, Size) ->
-    <<Name:32/little,
-      Info:8,
-      Other:8,
-      Shndx:16/little,
-      Value:64/little,
-      Size:64/little>>.
+    <<Name:32/little, Info:8, Other:8, Shndx:16/little, Value:64/little, Size:64/little>>.
 
 st_info(Bind, Type) ->
     (Bind bsl 4) bor Type.
@@ -158,8 +213,9 @@ st_info(Bind, Type) ->
 %% ---------------------------------------------------------------------------
 
 tmp_path() ->
-    Suffix = integer_to_list(erlang:unique_integer([positive, monotonic]))
-             ++ "_" ++ integer_to_list(rand:uniform(1000000)),
+    Suffix =
+        integer_to_list(erlang:unique_integer([positive, monotonic])) ++
+            "_" ++ integer_to_list(rand:uniform(1000000)),
     "/tmp/erlkoenig_elf_test_" ++ Suffix.
 
 write_tmp(Bin) ->
@@ -254,8 +310,9 @@ patch_ret_error_x86_test() ->
         FileOff = 16#78,
         <<_:FileOff/binary, PatchArea:16/binary, _/binary>> = Patched,
         %% MOV RAX,-1; RET + 8 bytes INT3
-        Expected = <<16#48, 16#C7, 16#C0, 16#FF, 16#FF, 16#FF, 16#FF, 16#C3,
-                     (binary:copy(<<16#CC>>, 8))/binary>>,
+        Expected =
+            <<16#48, 16#C7, 16#C0, 16#FF, 16#FF, 16#FF, 16#FF, 16#C3,
+                (binary:copy(<<16#CC>>, 8))/binary>>,
         ?assertEqual(Expected, PatchArea)
     after
         cleanup(Path)
@@ -272,8 +329,7 @@ patch_ret_aarch64_test() ->
         <<_:FileOff/binary, PatchArea:16/binary, _/binary>> = Patched,
         %% RET (4 bytes) + 3 * BRK #0 (12 bytes)
         Brk = <<16#00, 16#00, 16#20, 16#D4>>,
-        Expected = <<16#C0, 16#03, 16#5F, 16#D6,
-                     Brk/binary, Brk/binary, Brk/binary>>,
+        Expected = <<16#C0, 16#03, 16#5F, 16#D6, Brk/binary, Brk/binary, Brk/binary>>,
         ?assertEqual(Expected, PatchArea)
     after
         cleanup(Path)
@@ -290,9 +346,8 @@ patch_ret_zero_aarch64_test() ->
         <<_:FileOff/binary, PatchArea:16/binary, _/binary>> = Patched,
         %% MOV X0,XZR (4) + RET (4) + 2 * BRK #0 (8)
         Brk = <<16#00, 16#00, 16#20, 16#D4>>,
-        Expected = <<16#E0, 16#03, 16#1F, 16#AA,
-                     16#C0, 16#03, 16#5F, 16#D6,
-                     Brk/binary, Brk/binary>>,
+        Expected =
+            <<16#E0, 16#03, 16#1F, 16#AA, 16#C0, 16#03, 16#5F, 16#D6, Brk/binary, Brk/binary>>,
         ?assertEqual(Expected, PatchArea)
     after
         cleanup(Path)
@@ -450,19 +505,74 @@ build_test_elf_arch_raw(Machine) ->
     ShOff = (ShOffUnaligned + 7) band (bnot 7),
     PadSize = ShOff - ShOffUnaligned,
     Sh0 = shdr_entry(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Sh1 = shdr_entry(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     TextVaddr, TextOff, TextSize, 0, 0, 16, 0),
-    Sh2 = shdr_entry(7, ?SHT_STRTAB, 0, 0, ShStrTabOff,
-                     byte_size(ShStrTab), 0, 0, 1, 0),
-    Sh3 = shdr_entry(7, ?SHT_STRTAB, 0, 0, SymStrTabOff,
-                     byte_size(SymStrTab), 0, 0, 1, 0),
-    Sh4 = shdr_entry(15, ?SHT_SYMTAB, 0, 0, SymTabOff,
-                     byte_size(SymTab), 3, 0, 8, ?SYM_SIZE),
-    Header = elf_header_le(?ET_EXEC, Machine, TextVaddr, PhOff,
-                           ShOff, 1, 5, 2),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   TextVaddr, TextVaddr, TextSize, TextSize, 16#1000),
+    Sh1 = shdr_entry(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        TextVaddr,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
+    Sh2 = shdr_entry(
+        7,
+        ?SHT_STRTAB,
+        0,
+        0,
+        ShStrTabOff,
+        byte_size(ShStrTab),
+        0,
+        0,
+        1,
+        0
+    ),
+    Sh3 = shdr_entry(
+        7,
+        ?SHT_STRTAB,
+        0,
+        0,
+        SymStrTabOff,
+        byte_size(SymStrTab),
+        0,
+        0,
+        1,
+        0
+    ),
+    Sh4 = shdr_entry(
+        15,
+        ?SHT_SYMTAB,
+        0,
+        0,
+        SymTabOff,
+        byte_size(SymTab),
+        3,
+        0,
+        8,
+        ?SYM_SIZE
+    ),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        Machine,
+        TextVaddr,
+        PhOff,
+        ShOff,
+        1,
+        5,
+        2
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        TextVaddr,
+        TextVaddr,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary,
-      ShStrTab/binary, SymStrTab/binary, SymTab/binary, Pad/binary,
-      Sh0/binary, Sh1/binary, Sh2/binary, Sh3/binary, Sh4/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, ShStrTab/binary, SymStrTab/binary,
+        SymTab/binary, Pad/binary, Sh0/binary, Sh1/binary, Sh2/binary, Sh3/binary, Sh4/binary>>.

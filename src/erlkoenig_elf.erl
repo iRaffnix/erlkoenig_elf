@@ -1,8 +1,26 @@
-%%% @doc Public facade for erlkoenig_elf — the only module users need.
-%%%
-%%% Delegates to internal modules: elf_parse, elf_syscall, elf_seccomp,
-%%% elf_lang, elf_lang_go, elf_lang_rust, elf_patch.
+%%
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(erlkoenig_elf).
+-moduledoc """
+Public facade for erlkoenig_elf -- the only module users need.
+
+Delegates to internal modules: elf_parse, elf_syscall, elf_seccomp,
+elf_lang, elf_lang_go, elf_lang_rust, elf_patch.
+""".
 
 -include("elf_parse.hrl").
 -include("elf_seccomp.hrl").
@@ -133,15 +151,15 @@ deps(Elf) ->
 dep_capabilities(Elf) ->
     case deps(Elf) of
         {ok, DepList} ->
-            case syscalls(Elf) of
-                {ok, #{categories := Cats}} ->
-                    %% Build a map of dep -> categories it touches
-                    %% This is a heuristic based on available data
-                    CapMap = build_dep_capabilities(DepList, Cats),
-                    {ok, CapMap};
-                {error, _} ->
-                    {ok, #{}}
-            end;
+            Cats =
+                case syscalls(Elf) of
+                    {ok, #{categories := C}} -> C;
+                    {error, _} -> #{}
+                end,
+            %% Build a map of dep -> categories it touches
+            %% This is a heuristic based on available data
+            CapMap = build_dep_capabilities(DepList, Cats),
+            {ok, CapMap};
         {error, _} = Err ->
             Err
     end.
@@ -221,10 +239,14 @@ safe_lang_analyze(Elf) ->
 -spec build_dep_capabilities([term()], #{atom() => [term()]}) -> map().
 build_dep_capabilities(DepList, Cats) ->
     AllCats = maps:keys(Cats),
-    lists:foldl(fun(Dep, Acc) ->
-        Name = dep_name(Dep),
-        Acc#{Name => AllCats}
-    end, #{}, DepList).
+    lists:foldl(
+        fun(Dep, Acc) ->
+            Name = dep_name(Dep),
+            Acc#{Name => AllCats}
+        end,
+        #{},
+        DepList
+    ).
 
 -spec dep_name(term()) -> binary().
 dep_name(Dep) when is_map(Dep) ->
@@ -239,30 +261,49 @@ dep_name(_) ->
 
 -spec find_anomalies(map(), map()) -> [map()].
 find_anomalies(CapMap, Expected) ->
-    maps:fold(fun(Dep, ActualCats, Acc) ->
-        case maps:find(Dep, Expected) of
-            {ok, ExpectedCats} ->
-                Unexpected = [C || C <- ActualCats,
-                                   not lists:member(C, ExpectedCats)],
-                case Unexpected of
-                    [] -> Acc;
-                    _ -> [#{dep => Dep,
-                            unexpected_capabilities => Unexpected} | Acc]
-                end;
-            error ->
-                %% No expectations defined: flag if it has network capabilities
-                case lists:member(network, ActualCats) of
-                    true ->
-                        [#{dep => Dep,
-                           level => warn,
-                           reason => unexpected_network} | Acc];
-                    false ->
-                        Acc
-                end
-        end
-    end, [], CapMap).
+    maps:fold(
+        fun(Dep, ActualCats, Acc) ->
+            case maps:find(Dep, Expected) of
+                {ok, ExpectedCats} ->
+                    Unexpected = [
+                        C
+                     || C <- ActualCats,
+                        not lists:member(C, ExpectedCats)
+                    ],
+                    case Unexpected of
+                        [] ->
+                            Acc;
+                        _ ->
+                            [
+                                #{
+                                    dep => Dep,
+                                    unexpected_capabilities => Unexpected
+                                }
+                                | Acc
+                            ]
+                    end;
+                error ->
+                    %% No expectations defined: flag if it has network capabilities
+                    case lists:member(network, ActualCats) of
+                        true ->
+                            [
+                                #{
+                                    dep => Dep,
+                                    level => warn,
+                                    reason => unexpected_network
+                                }
+                                | Acc
+                            ];
+                        false ->
+                            Acc
+                    end
+            end
+        end,
+        [],
+        CapMap
+    ).
 
-%% @doc Try calling M:F(Args). Returns {ok, Result} or {error, not_loaded}.
+%% Try calling M:F(Args). Returns {ok, Result} or {error, not_loaded}.
 try_call(M, F, A) ->
     try
         Result = erlang:apply(M, F, A),

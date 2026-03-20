@@ -1,13 +1,14 @@
 -module(elf_decode_x86_64_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% We need the record definition — replicate it here since the module
 %% doesn't export a header.
 -record(x86_insn, {
     offset :: non_neg_integer(),
     length :: pos_integer(),
-    type   :: atom(),
-    value  :: integer() | undefined
+    type :: atom(),
+    value :: integer() | undefined
 }).
 
 %% ===================================================================
@@ -68,7 +69,8 @@ rex_w_mov_rax_imm64_test() ->
     {ok, I} = elf_decode_x86_64:decode(Bin, 0),
     ?assertEqual(mov_rax_imm, I#x86_insn.type),
     ?assertEqual(231, I#x86_insn.value),
-    ?assertEqual(10, I#x86_insn.length).  %% REX(1) + B8(1) + imm64(8)
+    %% REX(1) + B8(1) + imm64(8)
+    ?assertEqual(10, I#x86_insn.length).
 
 rex_w_mov_rax_sign_ext_imm32_test() ->
     %% 48 C7 C0 3C 00 00 00 = MOV RAX, 60
@@ -273,25 +275,26 @@ resolve_xor_eax_before_syscall_test() ->
 
 resolve_with_intervening_other_test() ->
     %% MOV EAX, 1; MOV EDI, 1; SYSCALL
-    Bin = <<16#B8, 1:32/little,     %% MOV EAX, 1
-            16#BF, 1:32/little,     %% MOV EDI, 1
-            16#0F, 16#05>>,         %% SYSCALL
+
+    %% MOV EAX, 1
+    Bin =
+        <<16#B8, 1:32/little,
+            %% MOV EDI, 1
+            16#BF, 1:32/little,
+            %% SYSCALL
+            16#0F, 16#05>>,
     Insns = elf_decode_x86_64:decode_all(Bin),
     ?assertEqual(1, elf_decode_x86_64:resolve_syscall(Bin, 10, Insns)).
 
 resolve_blocked_by_ret_test() ->
     %% MOV EAX, 60; RET; SYSCALL
-    Bin = <<16#B8, 60:32/little,
-            16#C3,
-            16#0F, 16#05>>,
+    Bin = <<16#B8, 60:32/little, 16#C3, 16#0F, 16#05>>,
     Insns = elf_decode_x86_64:decode_all(Bin),
     ?assertEqual(unresolved, elf_decode_x86_64:resolve_syscall(Bin, 6, Insns)).
 
 resolve_blocked_by_jmp_test() ->
     %% MOV EAX, 60; JMP +0; SYSCALL
-    Bin = <<16#B8, 60:32/little,
-            16#EB, 16#00,
-            16#0F, 16#05>>,
+    Bin = <<16#B8, 60:32/little, 16#EB, 16#00, 16#0F, 16#05>>,
     Insns = elf_decode_x86_64:decode_all(Bin),
     ?assertEqual(unresolved, elf_decode_x86_64:resolve_syscall(Bin, 7, Insns)).
 
@@ -315,12 +318,20 @@ extract_syscalls_test() ->
     %% MOV EAX, 60      ; sys_exit
     %% XOR EDI, EDI     ; status=0
     %% SYSCALL
-    Bin = <<16#B8, 1:32/little,      %% MOV EAX, 1
-            16#BF, 1:32/little,      %% MOV EDI, 1
-            16#0F, 16#05,            %% SYSCALL
-            16#B8, 60:32/little,     %% MOV EAX, 60
-            16#31, 16#FF,            %% XOR EDI, EDI
-            16#0F, 16#05>>,          %% SYSCALL
+
+    %% MOV EAX, 1
+    Bin =
+        <<16#B8, 1:32/little,
+            %% MOV EDI, 1
+            16#BF, 1:32/little,
+            %% SYSCALL
+            16#0F, 16#05,
+            %% MOV EAX, 60
+            16#B8, 60:32/little,
+            %% XOR EDI, EDI
+            16#31, 16#FF,
+            %% SYSCALL
+            16#0F, 16#05>>,
     {Numbers, Unresolved} = elf_decode_x86_64:extract_syscalls(Bin),
     ?assertEqual([1, 60], Numbers),
     ?assertEqual(0, Unresolved).
@@ -424,17 +435,30 @@ realistic_hello_world_test() ->
     %%   mov eax, 60                 ; B8 3C 00 00 00   (sys_exit)
     %%   xor edi, edi                ; 31 FF
     %%   syscall                     ; 0F 05
-    Bin = <<16#55,                             %% PUSH RBP
-            16#48, 16#89, 16#E5,               %% MOV RBP, RSP
-            16#48, 16#83, 16#EC, 16#10,        %% SUB RSP, 16
-            16#B8, 1:32/little,                %% MOV EAX, 1
-            16#BF, 1:32/little,                %% MOV EDI, 1
-            16#48, 16#8D, 16#35, 256:32/little, %% LEA RSI, [rip+0x100]
-            16#BA, 14:32/little,               %% MOV EDX, 14
-            16#0F, 16#05,                      %% SYSCALL
-            16#B8, 60:32/little,               %% MOV EAX, 60
-            16#31, 16#FF,                      %% XOR EDI, EDI
-            16#0F, 16#05>>,                    %% SYSCALL
+
+    %% PUSH RBP
+    Bin =
+        <<16#55,
+            %% MOV RBP, RSP
+            16#48, 16#89, 16#E5,
+            %% SUB RSP, 16
+            16#48, 16#83, 16#EC, 16#10,
+            %% MOV EAX, 1
+            16#B8, 1:32/little,
+            %% MOV EDI, 1
+            16#BF, 1:32/little,
+            %% LEA RSI, [rip+0x100]
+            16#48, 16#8D, 16#35, 256:32/little,
+            %% MOV EDX, 14
+            16#BA, 14:32/little,
+            %% SYSCALL
+            16#0F, 16#05,
+            %% MOV EAX, 60
+            16#B8, 60:32/little,
+            %% XOR EDI, EDI
+            16#31, 16#FF,
+            %% SYSCALL
+            16#0F, 16#05>>,
 
     Insns = elf_decode_x86_64:decode_all(Bin),
 
@@ -443,8 +467,11 @@ realistic_hello_world_test() ->
     ?assertEqual(byte_size(Bin), TotalLen),
 
     %% Verify syscalls found
-    SyscallOffsets = [I#x86_insn.offset || I <- Insns,
-                      I#x86_insn.type =:= syscall],
+    SyscallOffsets = [
+        I#x86_insn.offset
+     || I <- Insns,
+        I#x86_insn.type =:= syscall
+    ],
     ?assertEqual(2, length(SyscallOffsets)),
 
     %% Extract syscall numbers

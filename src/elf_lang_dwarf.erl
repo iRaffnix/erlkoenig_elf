@@ -1,12 +1,30 @@
-%%% @doc DWARF debug info analyzer — extracts high-level metadata.
-%%%
-%%% NOT a full DWARF parser. Only extracts:
-%%% - Whether .debug_info is present
-%%% - Per-CU: producer string, source language, compilation directory, name
-%%% - Source file list from .debug_line headers (DWARF-4 only)
-%%%
-%%% Supports DWARF-4 and DWARF-5 compilation unit headers.
+%%
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(elf_lang_dwarf).
+-moduledoc """
+DWARF debug info analyzer -- extracts high-level metadata.
+
+NOT a full DWARF parser. Only extracts:
+- Whether .debug_info is present
+- Per-CU: producer string, source language, compilation directory, name
+- Source file list from .debug_line headers (DWARF-4 only)
+
+Supports DWARF-4 and DWARF-5 compilation unit headers.
+""".
 
 -include("elf_parse.hrl").
 -include("elf_lang_dwarf.hrl").
@@ -25,7 +43,7 @@
 %% Public API
 %% ---------------------------------------------------------------------------
 
-%% @doc True if .debug_info section exists and is non-empty.
+-doc "True if .debug_info section exists and is non-empty.".
 -spec has_debug_info(#elf{}) -> boolean().
 has_debug_info(Elf) ->
     case elf_parse:section(<<".debug_info">>, Elf) of
@@ -33,31 +51,36 @@ has_debug_info(Elf) ->
         _ -> false
     end.
 
-%% @doc Extract compilation units from .debug_info.
+-doc "Extract compilation units from .debug_info.".
 -spec compilation_units(#elf{}) -> {ok, [#dwarf_cu{}]} | {error, term()}.
 compilation_units(Elf) ->
     case get_section_data(<<".debug_info">>, Elf) of
         {ok, DebugInfo} ->
-            Abbrev = case get_section_data(<<".debug_abbrev">>, Elf) of
-                         {ok, A} -> A;
-                         _ -> <<>>
-                     end,
-            DebugStr = case get_section_data(<<".debug_str">>, Elf) of
-                           {ok, S} -> S;
-                           _ -> <<>>
-                       end,
-            LineStr = case get_section_data(<<".debug_line_str">>, Elf) of
-                          {ok, LS} -> LS;
-                          _ -> <<>>
-                      end,
+            Abbrev =
+                case get_section_data(<<".debug_abbrev">>, Elf) of
+                    {ok, A} -> A;
+                    _ -> <<>>
+                end,
+            DebugStr =
+                case get_section_data(<<".debug_str">>, Elf) of
+                    {ok, S} -> S;
+                    _ -> <<>>
+                end,
+            LineStr =
+                case get_section_data(<<".debug_line_str">>, Elf) of
+                    {ok, LS} -> LS;
+                    _ -> <<>>
+                end,
             Endian = (Elf#elf.header)#elf_header.endian,
             {ok, parse_cus(DebugInfo, Abbrev, DebugStr, LineStr, Endian, [])};
         {error, _} ->
             {error, no_debug_info}
     end.
 
-%% @doc Extract source file names from .debug_line section headers.
-%%      Only supports DWARF-4 line table format. DWARF-5 CUs are skipped.
+-doc """
+Extract source file names from .debug_line section headers.
+Only supports DWARF-4 line table format. DWARF-5 CUs are skipped.
+""".
 -spec source_files(#elf{}) -> {ok, [binary()]} | {error, term()}.
 source_files(Elf) ->
     case get_section_data(<<".debug_line">>, Elf) of
@@ -83,15 +106,29 @@ get_section_data(Name, Elf) ->
 %% Internal — Compilation Unit parsing
 %% ---------------------------------------------------------------------------
 
--spec parse_cus(binary(), binary(), binary(), binary(),
-                little | big, [#dwarf_cu{}]) -> [#dwarf_cu{}].
+-spec parse_cus(
+    binary(),
+    binary(),
+    binary(),
+    binary(),
+    little | big,
+    [#dwarf_cu{}]
+) -> [#dwarf_cu{}].
 parse_cus(<<>>, _Abbrev, _Str, _LineStr, _Endian, Acc) ->
     lists:reverse(Acc);
 parse_cus(Bin, Abbrev, Str, LineStr, Endian, Acc) ->
     case parse_cu_header(Bin, Endian) of
         {ok, Version, AbbrevOff, AddrSize, DieData, Rest} ->
-            CU = parse_cu_die(DieData, Abbrev, AbbrevOff, AddrSize,
-                              Str, LineStr, Version, Endian),
+            CU = parse_cu_die(
+                DieData,
+                Abbrev,
+                AbbrevOff,
+                AddrSize,
+                Str,
+                LineStr,
+                Version,
+                Endian
+            ),
             parse_cus(Rest, Abbrev, Str, LineStr, Endian, [CU | Acc]);
         {error, _} ->
             lists:reverse(Acc)
@@ -110,20 +147,16 @@ parse_cu_header_1(Bin, _Endian) when byte_size(Bin) < 4 ->
 parse_cu_header_1(Bin, Endian) ->
     %% Read unit_length (32-bit DWARF only, skip 64-bit)
     {UnitLen, AfterLen} = read_u32(Bin, Endian),
-    case UnitLen of
-        16#FFFFFFFF ->
-            %% 64-bit DWARF — skip this CU
-            {error, dwarf64_unsupported};
-        _ when byte_size(AfterLen) < UnitLen ->
-            {error, truncated};
-        _ ->
-            <<CUBody:UnitLen/binary, Rest/binary>> = AfterLen,
-            case parse_cu_fields(CUBody, Endian) of
-                {ok, Version, AbbrevOff, AddrSize, DieData} ->
-                    {ok, Version, AbbrevOff, AddrSize, DieData, Rest};
-                Error ->
-                    Error
-            end
+    maybe
+        ok ?=
+            case UnitLen of
+                16#FFFFFFFF -> {error, dwarf64_unsupported};
+                _ when byte_size(AfterLen) < UnitLen -> {error, truncated};
+                _ -> ok
+            end,
+        <<CUBody:UnitLen/binary, Rest/binary>> = AfterLen,
+        {ok, Version, AbbrevOff, AddrSize, DieData} ?= parse_cu_fields(CUBody, Endian),
+        {ok, Version, AbbrevOff, AddrSize, DieData, Rest}
     end.
 
 parse_cu_fields(CUBody, _Endian) when byte_size(CUBody) < 2 ->
@@ -134,7 +167,8 @@ parse_cu_fields(CUBody, Endian) ->
         4 ->
             %% DWARF-4: version(2) + abbrev_offset(4) + address_size(1)
             case After1 of
-                <<>> -> {error, truncated};
+                <<>> ->
+                    {error, truncated};
                 _ when byte_size(After1) < 5 -> {error, truncated};
                 _ ->
                     {AbbrevOff, After2} = read_u32(After1, Endian),
@@ -168,8 +202,15 @@ parse_cu_die(DieData, Abbrev, AbbrevOff, AddrSize, Str, LineStr, Version, Endian
         {AbbrevCode, AttrData} ->
             case lookup_abbrev(Abbrev, AbbrevOff, AbbrevCode) of
                 {ok, ?DW_TAG_compile_unit, AttrSpecs} ->
-                    parse_cu_attrs(AttrData, AttrSpecs, AddrSize,
-                                   Str, LineStr, Endian, BaseCU);
+                    parse_cu_attrs(
+                        AttrData,
+                        AttrSpecs,
+                        AddrSize,
+                        Str,
+                        LineStr,
+                        Endian,
+                        BaseCU
+                    );
                 {ok, _OtherTag, _} ->
                     BaseCU;
                 error ->
@@ -215,7 +256,7 @@ read_debug_str(StrSection, Offset) when Offset < byte_size(StrSection) ->
     <<_:Offset/binary, Rest/binary>> = StrSection,
     case binary:match(Rest, <<0>>) of
         {Pos, 1} -> binary:part(Rest, 0, Pos);
-        nomatch  -> Rest
+        nomatch -> Rest
     end;
 read_debug_str(_, _) ->
     <<>>.
@@ -227,7 +268,8 @@ read_debug_str(_, _) ->
 %% Look up an abbreviation code in .debug_abbrev starting at AbbrevOff.
 %% Returns {ok, Tag, [{Attr, Form}]} or error.
 lookup_abbrev(AbbrevSection, AbbrevOff, TargetCode) when
-      AbbrevOff < byte_size(AbbrevSection) ->
+    AbbrevOff < byte_size(AbbrevSection)
+->
     <<_:AbbrevOff/binary, AbbrevData/binary>> = AbbrevSection,
     scan_abbrev(AbbrevData, TargetCode);
 lookup_abbrev(_, _, _) ->
@@ -267,13 +309,14 @@ read_attr_specs(Bin, Acc) ->
             {lists:reverse(Acc), Rest2};
         _ ->
             %% For implicit_const, skip the SLEB128 constant in the abbrev table
-            Rest3 = case Form of
-                        ?DW_FORM_implicit_const ->
-                            {_Const, R} = decode_sleb128(Rest2),
-                            R;
-                        _ ->
-                            Rest2
-                    end,
+            Rest3 =
+                case Form of
+                    ?DW_FORM_implicit_const ->
+                        {_Const, R} = decode_sleb128(Rest2),
+                        R;
+                    _ ->
+                        Rest2
+                end,
             read_attr_specs(Rest3, [{Attr, Form} | Acc])
     end.
 
@@ -282,23 +325,28 @@ read_attr_specs(Bin, Acc) ->
 %% ---------------------------------------------------------------------------
 
 read_form_value(Bin, ?DW_FORM_addr, AddrSize, _Endian) when
-      byte_size(Bin) >= AddrSize ->
+    byte_size(Bin) >= AddrSize
+->
     <<Val:AddrSize/unit:8, Rest/binary>> = Bin,
     {ok, Val, Rest};
 read_form_value(Bin, ?DW_FORM_data1, _AddrSize, _Endian) when
-      byte_size(Bin) >= 1 ->
+    byte_size(Bin) >= 1
+->
     <<Val:8, Rest/binary>> = Bin,
     {ok, Val, Rest};
 read_form_value(Bin, ?DW_FORM_data2, _AddrSize, Endian) when
-      byte_size(Bin) >= 2 ->
+    byte_size(Bin) >= 2
+->
     {Val, Rest} = read_u16(Bin, Endian),
     {ok, Val, Rest};
 read_form_value(Bin, ?DW_FORM_data4, _AddrSize, Endian) when
-      byte_size(Bin) >= 4 ->
+    byte_size(Bin) >= 4
+->
     {Val, Rest} = read_u32(Bin, Endian),
     {ok, Val, Rest};
 read_form_value(Bin, ?DW_FORM_data8, _AddrSize, Endian) when
-      byte_size(Bin) >= 8 ->
+    byte_size(Bin) >= 8
+->
     {Val, Rest} = read_u64(Bin, Endian),
     {ok, Val, Rest};
 read_form_value(Bin, ?DW_FORM_string, _AddrSize, _Endian) ->
@@ -311,15 +359,18 @@ read_form_value(Bin, ?DW_FORM_string, _AddrSize, _Endian) ->
             {error, unterminated_string}
     end;
 read_form_value(Bin, ?DW_FORM_strp, _AddrSize, Endian) when
-      byte_size(Bin) >= 4 ->
+    byte_size(Bin) >= 4
+->
     {Offset, Rest} = read_u32(Bin, Endian),
     {ok, Offset, Rest};
 read_form_value(Bin, ?DW_FORM_line_strp, _AddrSize, Endian) when
-      byte_size(Bin) >= 4 ->
+    byte_size(Bin) >= 4
+->
     {Offset, Rest} = read_u32(Bin, Endian),
     {ok, Offset, Rest};
 read_form_value(Bin, ?DW_FORM_sec_offset, _AddrSize, Endian) when
-      byte_size(Bin) >= 4 ->
+    byte_size(Bin) >= 4
+->
     {Val, Rest} = read_u32(Bin, Endian),
     {ok, Val, Rest};
 read_form_value(Bin, ?DW_FORM_flag_present, _AddrSize, _Endian) ->
@@ -346,19 +397,28 @@ read_form_value(_Bin, Form, _AddrSize, _Endian) ->
 %% ---------------------------------------------------------------------------
 
 -spec decode_language(non_neg_integer()) ->
-    c | c89 | c99 | c11 | c17 | cpp | cpp11 | cpp14
-    | go | rust | {unknown, non_neg_integer()}.
-decode_language(?DW_LANG_C89)            -> c89;
-decode_language(?DW_LANG_C)              -> c;
-decode_language(?DW_LANG_C_plus_plus)    -> cpp;
-decode_language(?DW_LANG_C99)            -> c99;
-decode_language(?DW_LANG_Go)             -> go;
+    c
+    | c89
+    | c99
+    | c11
+    | c17
+    | cpp
+    | cpp11
+    | cpp14
+    | go
+    | rust
+    | {unknown, non_neg_integer()}.
+decode_language(?DW_LANG_C89) -> c89;
+decode_language(?DW_LANG_C) -> c;
+decode_language(?DW_LANG_C_plus_plus) -> cpp;
+decode_language(?DW_LANG_C99) -> c99;
+decode_language(?DW_LANG_Go) -> go;
 decode_language(?DW_LANG_C_plus_plus_11) -> cpp11;
-decode_language(?DW_LANG_Rust)           -> rust;
-decode_language(?DW_LANG_C11)            -> c11;
+decode_language(?DW_LANG_Rust) -> rust;
+decode_language(?DW_LANG_C11) -> c11;
 decode_language(?DW_LANG_C_plus_plus_14) -> cpp14;
-decode_language(?DW_LANG_C17)            -> c17;
-decode_language(V)                       -> {unknown, V}.
+decode_language(?DW_LANG_C17) -> c17;
+decode_language(V) -> {unknown, V}.
 
 %% ---------------------------------------------------------------------------
 %% Internal — .debug_line source file parsing
@@ -390,7 +450,8 @@ parse_line_unit_files(UnitBody, Endian) ->
     {Version, After1} = read_u16(UnitBody, Endian),
     case Version of
         4 -> parse_line_v4_files(After1, Endian);
-        _ -> []  %% DWARF-5 or unknown — skip
+        %% DWARF-5 or unknown — skip
+        _ -> []
     end.
 
 -spec parse_line_v4_files(binary(), little | big) -> [binary()].
@@ -399,7 +460,8 @@ parse_line_v4_files(Bin, _Endian) when byte_size(Bin) < 4 ->
 parse_line_v4_files(Bin, Endian) ->
     {HeaderLen, AfterHL} = read_u32(Bin, Endian),
     case byte_size(AfterHL) >= HeaderLen of
-        false -> [];
+        false ->
+            [];
         true ->
             <<HeaderBody:HeaderLen/binary, _/binary>> = AfterHL,
             parse_line_v4_header(HeaderBody)
@@ -416,12 +478,13 @@ parse_line_v4_header(Bin) ->
     %% line_base: 1 (signed)
     %% line_range: 1
     %% opcode_base: 1
-    <<_MinInstLen:8, _MaxOpsPerInst:8, _DefaultIsStmt:8,
-      _LineBase:8/signed, _LineRange:8, OpcodeBase:8, Rest/binary>> = Bin,
+    <<_MinInstLen:8, _MaxOpsPerInst:8, _DefaultIsStmt:8, _LineBase:8/signed, _LineRange:8,
+        OpcodeBase:8, Rest/binary>> = Bin,
     %% standard_opcode_lengths: (opcode_base - 1) bytes
     NumOpcodes = OpcodeBase - 1,
     case byte_size(Rest) >= NumOpcodes of
-        false -> [];
+        false ->
+            [];
         true ->
             <<_OpcLens:NumOpcodes/binary, AfterOpc/binary>> = Rest,
             %% include_directories: null-terminated strings, terminated by empty string (\0)
@@ -500,10 +563,10 @@ decode_sleb128(<<>>, _Shift, Acc) ->
     {Acc, <<>>}.
 
 read_u16(<<V:16/little, Rest/binary>>, little) -> {V, Rest};
-read_u16(<<V:16/big, Rest/binary>>, big)       -> {V, Rest}.
+read_u16(<<V:16/big, Rest/binary>>, big) -> {V, Rest}.
 
 read_u32(<<V:32/little, Rest/binary>>, little) -> {V, Rest};
-read_u32(<<V:32/big, Rest/binary>>, big)       -> {V, Rest}.
+read_u32(<<V:32/big, Rest/binary>>, big) -> {V, Rest}.
 
 read_u64(<<V:64/little, Rest/binary>>, little) -> {V, Rest};
-read_u64(<<V:64/big, Rest/binary>>, big)       -> {V, Rest}.
+read_u64(<<V:64/big, Rest/binary>>, big) -> {V, Rest}.

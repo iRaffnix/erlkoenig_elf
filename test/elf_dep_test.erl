@@ -1,5 +1,6 @@
 -module(elf_dep_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 -include("elf_lang_go.hrl").
 -include("elf_lang_rust.hrl").
@@ -11,45 +12,29 @@
 -define(TEXT_VADDR, 16#400000).
 
 elf_header_le(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
-    <<16#7F, "ELF",
-      2:8, 1:8, 1:8, 0:8,
-      0:64,
-      Type:16/little,
-      Machine:16/little,
-      1:32/little,
-      Entry:64/little,
-      PhOff:64/little,
-      ShOff:64/little,
-      0:32/little,
-      64:16/little,
-      56:16/little,
-      PhNum:16/little,
-      64:16/little,
-      ShNum:16/little,
-      ShStrNdx:16/little>>.
+    <<16#7F, "ELF", 2:8, 1:8, 1:8, 0:8, 0:64, Type:16/little, Machine:16/little, 1:32/little,
+        Entry:64/little, PhOff:64/little, ShOff:64/little, 0:32/little, 64:16/little, 56:16/little,
+        PhNum:16/little, 64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
 
 phdr_le(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/little,
-      PFlags:32/little,
-      POffset:64/little,
-      PVaddr:64/little,
-      PPaddr:64/little,
-      PFilesz:64/little,
-      PMemsz:64/little,
-      PAlign:64/little>>.
+    <<PType:32/little, PFlags:32/little, POffset:64/little, PVaddr:64/little, PPaddr:64/little,
+        PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
 
-shdr_le(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-        ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/little,
-      ShType:32/little,
-      ShFlags:64/little,
-      ShAddr:64/little,
-      ShOffset:64/little,
-      ShSize:64/little,
-      ShLink:32/little,
-      ShInfo:32/little,
-      ShAddralign:64/little,
-      ShEntsize:64/little>>.
+shdr_le(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/little, ShType:32/little, ShFlags:64/little, ShAddr:64/little, ShOffset:64/little,
+        ShSize:64/little, ShLink:32/little, ShInfo:32/little, ShAddralign:64/little,
+        ShEntsize:64/little>>.
 
 %% ---------------------------------------------------------------------------
 %% Varint encoding helper
@@ -112,15 +97,11 @@ make_gopclntab(FuncSpecs, TextStart) ->
     PadBytes = <<0, 0>>,
     MinLC = 1,
 
-    Header = <<Magic/binary, PadBytes/binary, MinLC:8, PtrSize:8,
-               Nfunc:PtrBits/little,
-               Nfiles:PtrBits/little,
-               TextStart:PtrBits/little,
-               FuncnameOff:PtrBits/little,
-               CutabOff:PtrBits/little,
-               FiletabOff:PtrBits/little,
-               PctabOff:PtrBits/little,
-               PcDataOff:PtrBits/little>>,
+    Header =
+        <<Magic/binary, PadBytes/binary, MinLC:8, PtrSize:8, Nfunc:PtrBits/little,
+            Nfiles:PtrBits/little, TextStart:PtrBits/little, FuncnameOff:PtrBits/little,
+            CutabOff:PtrBits/little, FiletabOff:PtrBits/little, PctabOff:PtrBits/little,
+            PcDataOff:PtrBits/little>>,
 
     FuncTab = build_func_table(FuncSpecs),
 
@@ -184,26 +165,71 @@ make_go_elf_with_syscalls(BuildInfoData, GopclntabData, TextContent, TextSize) -
     PadSize = ShdrOff - ShdrOffUnaligned,
 
     NumSections = 5,
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, NumSections, 4),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        NumSections,
+        4
+    ),
 
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, TextSize, TextSize, 16#1000),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
-    Shdr2 = shdr_le(7, ?SHT_PROGBITS, 0,
-                     0, BuildInfoOff, BuildInfoSize, 0, 0, 1, 0),
-    Shdr3 = shdr_le(21, ?SHT_PROGBITS, 0,
-                     0, GopclntabOff, GopclntabSize, 0, 0, 1, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
+    Shdr2 = shdr_le(
+        7,
+        ?SHT_PROGBITS,
+        0,
+        0,
+        BuildInfoOff,
+        BuildInfoSize,
+        0,
+        0,
+        1,
+        0
+    ),
+    Shdr3 = shdr_le(
+        21,
+        ?SHT_PROGBITS,
+        0,
+        0,
+        GopclntabOff,
+        GopclntabSize,
+        0,
+        0,
+        1,
+        0
+    ),
     Shdr4 = shdr_le(32, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary,
-      TextContent/binary, BuildInfoData/binary, GopclntabData/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary, Shdr4/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, BuildInfoData/binary, GopclntabData/binary,
+        StrTab/binary, Pad/binary, Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary,
+        Shdr4/binary>>.
 
 %% Standard Go ELF with NOP .text (no syscalls)
 make_go_elf(BuildInfoData, GopclntabData) ->
@@ -228,23 +254,57 @@ make_go_elf_buildinfo_only(BuildInfoData) ->
     PadSize = ShdrOff - ShdrOffUnaligned,
 
     NumSections = 4,
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, NumSections, 3),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, TextSize, TextSize, 16#1000),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        NumSections,
+        3
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
-    Shdr2 = shdr_le(7, ?SHT_PROGBITS, 0,
-                     0, BuildInfoOff, BuildInfoSize, 0, 0, 1, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
+    Shdr2 = shdr_le(
+        7,
+        ?SHT_PROGBITS,
+        0,
+        0,
+        BuildInfoOff,
+        BuildInfoSize,
+        0,
+        0,
+        1,
+        0
+    ),
     Shdr3 = shdr_le(21, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary,
-      TextContent/binary, BuildInfoData/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, BuildInfoData/binary, StrTab/binary,
+        Pad/binary, Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary>>.
 
 %% Plain ELF with no Go sections
 make_plain_elf() ->
@@ -259,32 +319,59 @@ make_plain_elf() ->
     ShdrOff = (ShdrOffUnaligned + 7) band (bnot 7),
     PadSize = ShdrOff - ShdrOffUnaligned,
 
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, 3, 2),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, TextSize, TextSize, 16#1000),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        3,
+        2
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_le(7, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary, Shdr0/binary,
+        Shdr1/binary, Shdr2/binary>>.
 
 %% ---------------------------------------------------------------------------
 %% Test data
 %% ---------------------------------------------------------------------------
 
 sample_mod_info() ->
-    <<"path\tgithub.com/user/app\n"
-      "mod\tgithub.com/user/app\t(devel)\t\n"
-      "dep\tgithub.com/lib/pq\tv1.10.9\th1:abc123=\n"
-      "dep\tgolang.org/x/text\tv0.14.0\th1:def456=\n"
-      "build\tGOOS=linux\n"
-      "build\tGOARCH=amd64\n">>.
+    <<
+        "path\tgithub.com/user/app\n"
+        "mod\tgithub.com/user/app\t(devel)\t\n"
+        "dep\tgithub.com/lib/pq\tv1.10.9\th1:abc123=\n"
+        "dep\tgolang.org/x/text\tv0.14.0\th1:def456=\n"
+        "build\tGOOS=linux\n"
+        "build\tGOARCH=amd64\n"
+    >>.
 
 %% ===========================================================================
 %% Tests — deps/1
@@ -292,8 +379,10 @@ sample_mod_info() ->
 
 deps_go_binary_test() ->
     BuildInfo = make_buildinfo_section(<<"go1.22.1">>, sample_mod_info()),
-    FuncSpecs = [{<<"runtime.goexit">>, 16#1000},
-                 {<<"main.main">>, 16#2000}],
+    FuncSpecs = [
+        {<<"runtime.goexit">>, 16#1000},
+        {<<"main.main">>, 16#2000}
+    ],
     Gopclntab = make_gopclntab(FuncSpecs, ?TEXT_VADDR),
     Bin = make_go_elf(BuildInfo, Gopclntab),
     {ok, Elf} = elf_parse:from_binary(Bin),
@@ -345,15 +434,19 @@ capabilities_go_basic_test() ->
     %%   0x0020: MOV EAX, 9; SYSCALL   (7 bytes: mmap)
     %%   0x0027..0x003F: NOPs (padding)
 
-    SyscallNet = x86_64_syscall_seq(41),     %% socket
-    SyscallMem = x86_64_syscall_seq(9),      %% mmap
+    %% socket
+    SyscallNet = x86_64_syscall_seq(41),
+    %% mmap
+    SyscallMem = x86_64_syscall_seq(9),
     Pad1 = binary:copy(<<16#90>>, 16#20 - byte_size(SyscallNet)),
     Pad2 = binary:copy(<<16#90>>, 16#20 - byte_size(SyscallMem)),
     TextContent = <<SyscallNet/binary, Pad1/binary, SyscallMem/binary, Pad2/binary>>,
     TextSize = byte_size(TextContent),
 
-    FuncSpecs = [{<<"net/http.Get">>, 16#0000},
-                 {<<"fmt.Sprintf">>,  16#0020}],
+    FuncSpecs = [
+        {<<"net/http.Get">>, 16#0000},
+        {<<"fmt.Sprintf">>, 16#0020}
+    ],
     Gopclntab = make_gopclntab(FuncSpecs, ?TEXT_VADDR),
     BuildInfo = make_buildinfo_section(<<"go1.22.1">>, <<>>),
     Bin = make_go_elf_with_syscalls(BuildInfo, Gopclntab, TextContent, TextSize),
@@ -390,8 +483,11 @@ capabilities_no_syscalls_test() ->
 
 capabilities_multiple_syscalls_same_package_test() ->
     %% Two syscalls in the same package range
-    Syscall1 = x86_64_syscall_seq(41),   %% socket
-    Syscall2 = x86_64_syscall_seq(42),   %% connect
+
+    %% socket
+    Syscall1 = x86_64_syscall_seq(41),
+    %% connect
+    Syscall2 = x86_64_syscall_seq(42),
     Pad = binary:copy(<<16#90>>, 16#20 - byte_size(Syscall1) - byte_size(Syscall2)),
     TextContent = <<Syscall1/binary, Syscall2/binary, Pad/binary>>,
     TextSize = byte_size(TextContent),
@@ -416,7 +512,9 @@ capabilities_multiple_syscalls_same_package_test() ->
 
 anomalies_detects_unexpected_capability_test() ->
     %% "encoding/json" package with a socket syscall is anomalous
-    Syscall = x86_64_syscall_seq(41),   %% socket = network
+
+    %% socket = network
+    Syscall = x86_64_syscall_seq(41),
     Pad = binary:copy(<<16#90>>, 16#20 - byte_size(Syscall)),
     TextContent = <<Syscall/binary, Pad/binary>>,
     TextSize = byte_size(TextContent),
@@ -454,7 +552,9 @@ anomalies_no_anomalies_when_expected_test() ->
 
 anomalies_empty_expected_flags_everything_test() ->
     %% Unknown package with any syscall is anomalous
-    Syscall = x86_64_syscall_seq(9),   %% mmap = memory
+
+    %% mmap = memory
+    Syscall = x86_64_syscall_seq(9),
     Pad = binary:copy(<<16#90>>, 16#20 - byte_size(Syscall)),
     TextContent = <<Syscall/binary, Pad/binary>>,
     TextSize = byte_size(TextContent),
@@ -479,7 +579,9 @@ anomalies_empty_expected_flags_everything_test() ->
 anomalies_default_expectations_test() ->
     %% "encoding/json" package with socket syscall: flagged by defaults
     %% (encoding/ prefix maps to [memory], network is unexpected)
-    Syscall = x86_64_syscall_seq(41),   %% socket = network
+
+    %% socket = network
+    Syscall = x86_64_syscall_seq(41),
     Pad = binary:copy(<<16#90>>, 16#20 - byte_size(Syscall)),
     TextContent = <<Syscall/binary, Pad/binary>>,
     TextSize = byte_size(TextContent),
@@ -498,7 +600,9 @@ anomalies_default_expectations_test() ->
 
 anomalies_default_runtime_not_flagged_test() ->
     %% "runtime" package with memory syscall: not flagged
-    Syscall = x86_64_syscall_seq(9),   %% mmap = memory
+
+    %% mmap = memory
+    Syscall = x86_64_syscall_seq(9),
     Pad = binary:copy(<<16#90>>, 16#20 - byte_size(Syscall)),
     TextContent = <<Syscall/binary, Pad/binary>>,
     TextSize = byte_size(TextContent),
@@ -523,7 +627,9 @@ anomalies_plain_binary_returns_empty_test() ->
 
 anomalies_prefix_matching_test() ->
     %% "net/http" matches "net" prefix => network is expected
-    Syscall = x86_64_syscall_seq(41),   %% socket = network
+
+    %% socket = network
+    Syscall = x86_64_syscall_seq(41),
     Pad = binary:copy(<<16#90>>, 16#20 - byte_size(Syscall)),
     TextContent = <<Syscall/binary, Pad/binary>>,
     TextSize = byte_size(TextContent),

@@ -1,5 +1,6 @@
 -module(erlkoenig_elf_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 -include("elf_seccomp.hrl").
 -include("elf_lang_go.hrl").
@@ -9,50 +10,81 @@
 %% Minimal ELF64 binary construction (reused from elf_parse_test)
 %% ---------------------------------------------------------------------------
 
--define(TEXT_OFF,    16#078).
--define(TEXT_SIZE,   4).
--define(TEXT_VADDR,  16#400000).
--define(STRTAB_OFF,  16#07C).
+-define(TEXT_OFF, 16#078).
+-define(TEXT_SIZE, 4).
+-define(TEXT_VADDR, 16#400000).
+-define(STRTAB_OFF, 16#07C).
 -define(STRTAB_SIZE, 17).
--define(SHDR_OFF,    16#090).
+-define(SHDR_OFF, 16#090).
 
 minimal_elf64_le() ->
     StrTab = <<0, ".text", 0, ".shstrtab", 0>>,
     ?STRTAB_SIZE = byte_size(StrTab),
     TextContent = <<16#90, 16#90, 16#90, 16#C3>>,
     ?TEXT_SIZE = byte_size(TextContent),
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ?SHDR_OFF, 1, 3, 2),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, ?TEXT_OFF,
-                   ?TEXT_VADDR, ?TEXT_VADDR, ?TEXT_SIZE, ?TEXT_SIZE, 16#1000),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ?SHDR_OFF,
+        1,
+        3,
+        2
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        ?TEXT_OFF,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        ?TEXT_SIZE,
+        ?TEXT_SIZE,
+        16#1000
+    ),
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, ?TEXT_OFF, ?TEXT_SIZE, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        ?TEXT_OFF,
+        ?TEXT_SIZE,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_le(7, ?SHT_STRTAB, 0, 0, ?STRTAB_OFF, ?STRTAB_SIZE, 0, 0, 1, 0),
     PadSize = ?SHDR_OFF - (?STRTAB_OFF + ?STRTAB_SIZE),
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary, Shdr0/binary,
+        Shdr1/binary, Shdr2/binary>>.
 
 elf_header_le(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
-    <<16#7F, "ELF",
-      2:8, 1:8, 1:8, 0:8, 0:64,
-      Type:16/little, Machine:16/little, 1:32/little,
-      Entry:64/little, PhOff:64/little, ShOff:64/little,
-      0:32/little, 64:16/little, 56:16/little, PhNum:16/little,
-      64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
+    <<16#7F, "ELF", 2:8, 1:8, 1:8, 0:8, 0:64, Type:16/little, Machine:16/little, 1:32/little,
+        Entry:64/little, PhOff:64/little, ShOff:64/little, 0:32/little, 64:16/little, 56:16/little,
+        PhNum:16/little, 64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
 
 phdr_le(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/little, PFlags:32/little,
-      POffset:64/little, PVaddr:64/little, PPaddr:64/little,
-      PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
+    <<PType:32/little, PFlags:32/little, POffset:64/little, PVaddr:64/little, PPaddr:64/little,
+        PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
 
-shdr_le(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-        ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/little, ShType:32/little, ShFlags:64/little,
-      ShAddr:64/little, ShOffset:64/little, ShSize:64/little,
-      ShLink:32/little, ShInfo:32/little,
-      ShAddralign:64/little, ShEntsize:64/little>>.
+shdr_le(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/little, ShType:32/little, ShFlags:64/little, ShAddr:64/little, ShOffset:64/little,
+        ShSize:64/little, ShLink:32/little, ShInfo:32/little, ShAddralign:64/little,
+        ShEntsize:64/little>>.
 
 %% ===========================================================================
 %% Tests
@@ -131,7 +163,8 @@ syscalls_unsupported_arch_test() ->
             ?assert(is_map(Info)),
             ?assert(maps:is_key(arch, Info));
         {error, _Reason} ->
-            ok  %% decoder not available is fine
+            %% decoder not available is fine
+            ok
     end.
 
 %% --- syscall_names/1 ---
@@ -158,7 +191,8 @@ seccomp_json_test() ->
             %% Should contain seccomp-specific keys
             ?assertNotEqual(nomatch, binary:match(Flat, <<"SCMP_">>));
         {error, _} ->
-            ok  %% decoder not available
+            %% decoder not available
+            ok
     end.
 
 %% --- seccomp_profile/1 ---

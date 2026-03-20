@@ -1,12 +1,30 @@
-%%% @doc Go binary analysis module.
-%%%
-%%% Parses Go-specific data structures from ELF binaries:
-%%% - .go.buildinfo section (version, module path, dependencies, build settings)
-%%% - .gopclntab section (function names, entry addresses, packages)
-%%%
-%%% Both sections survive stripping and are present in all Go binaries
-%%% compiled with Go 1.13+.
+%%
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(elf_lang_go).
+-moduledoc """
+Go binary analysis module.
+
+Parses Go-specific data structures from ELF binaries:
+- .go.buildinfo section (version, module path, dependencies, build settings)
+- .gopclntab section (function names, entry addresses, packages)
+
+Both sections survive stripping and are present in all Go binaries
+compiled with Go 1.13+.
+""".
 
 -include("elf_parse.hrl").
 -include("elf_lang_go.hrl").
@@ -27,15 +45,19 @@
 
 -type go_info() :: #go_info{}.
 -type go_func() :: #go_func{}.
--type go_dep()  :: #go_dep{}.
+-type go_dep() :: #go_dep{}.
 
 %% .go.buildinfo magic
 -define(BUILDINFO_MAGIC, <<16#FF, " Go buildinf:">>).
 
 %% gopclntab magic values (stored as little-endian uint32 in binary)
--define(GOPCLNTAB_MAGIC_120, <<16#F1, 16#FF, 16#FF, 16#FF>>).  %% Go 1.20+
--define(GOPCLNTAB_MAGIC_118, <<16#F0, 16#FF, 16#FF, 16#FF>>).  %% Go 1.18-1.19
--define(GOPCLNTAB_MAGIC_116, <<16#FA, 16#FF, 16#FF, 16#FF>>).  %% Go 1.16-1.17
+
+%% Go 1.20+
+-define(GOPCLNTAB_MAGIC_120, <<16#F1, 16#FF, 16#FF, 16#FF>>).
+%% Go 1.18-1.19
+-define(GOPCLNTAB_MAGIC_118, <<16#F0, 16#FF, 16#FF, 16#FF>>).
+%% Go 1.16-1.17
+-define(GOPCLNTAB_MAGIC_116, <<16#FA, 16#FF, 16#FF, 16#FF>>).
 
 %% ---------------------------------------------------------------------------
 %% Public API
@@ -51,23 +73,31 @@ parse(Elf) ->
         false ->
             {error, not_go};
         true ->
-            BuildInfo = case parse_buildinfo(Elf) of
-                {ok, BI} -> BI;
-                {error, _} -> #{version => <<>>, main_module => undefined,
-                                mod_version => undefined, deps => [],
-                                build_settings => []}
-            end,
-            Funcs = case parse_gopclntab(Elf) of
-                {ok, Fs} -> Fs;
-                {error, _} -> []
-            end,
+            BuildInfo =
+                case parse_buildinfo(Elf) of
+                    {ok, BI} ->
+                        BI;
+                    {error, _} ->
+                        #{
+                            version => <<>>,
+                            main_module => undefined,
+                            mod_version => undefined,
+                            deps => [],
+                            build_settings => []
+                        }
+                end,
+            Funcs =
+                case parse_gopclntab(Elf) of
+                    {ok, Fs} -> Fs;
+                    {error, _} -> []
+                end,
             Version = maps:get(version, BuildInfo),
             {ok, #go_info{
-                version        = Version,
-                main_module    = maps:get(main_module, BuildInfo),
-                mod_version    = maps:get(mod_version, BuildInfo),
-                deps           = maps:get(deps, BuildInfo),
-                functions      = Funcs,
+                version = Version,
+                main_module = maps:get(main_module, BuildInfo),
+                mod_version = maps:get(mod_version, BuildInfo),
+                deps = maps:get(deps, BuildInfo),
+                functions = Funcs,
                 build_settings = maps:get(build_settings, BuildInfo),
                 go_version_raw = Version
             }}
@@ -91,9 +121,13 @@ deps(Elf) ->
 function_package_map(Elf) ->
     case functions(Elf) of
         {ok, Funcs} ->
-            Map = lists:foldl(fun(#go_func{package = Pkg} = F, Acc) ->
-                maps:update_with(Pkg, fun(Existing) -> Existing ++ [F] end, [F], Acc)
-            end, #{}, Funcs),
+            Map = lists:foldl(
+                fun(#go_func{package = Pkg} = F, Acc) ->
+                    maps:update_with(Pkg, fun(Existing) -> Existing ++ [F] end, [F], Acc)
+                end,
+                #{},
+                Funcs
+            ),
             {ok, Map};
         Error ->
             Error
@@ -123,14 +157,17 @@ parse_buildinfo(Elf) ->
     end.
 
 -spec decode_buildinfo(binary(), #elf{}) -> {ok, map()} | {error, term()}.
-decode_buildinfo(<<Magic:14/binary, PtrSize:8, Flags:8, Rest/binary>>, Elf)
-  when Magic =:= ?BUILDINFO_MAGIC, (PtrSize =:= 4 orelse PtrSize =:= 8) ->
+decode_buildinfo(<<Magic:14/binary, PtrSize:8, Flags:8, Rest/binary>>, Elf) when
+    Magic =:= ?BUILDINFO_MAGIC, (PtrSize =:= 4 orelse PtrSize =:= 8)
+->
     InlineStrings = (Flags band 2) =/= 0,
     case InlineStrings of
         true ->
             %% Newer Go (>=1.18): varint-prefixed strings after 32-byte header
             %% Skip remaining header bytes to get past 32-byte mark
-            SkipBytes = 32 - 16, %% Already consumed 16 bytes (14 magic + 1 ptr + 1 flags)
+
+            %% Already consumed 16 bytes (14 magic + 1 ptr + 1 flags)
+            SkipBytes = 32 - 16,
             case Rest of
                 <<_Skip:SkipBytes/binary, StringData/binary>> ->
                     decode_buildinfo_inline(StringData);
@@ -139,7 +176,11 @@ decode_buildinfo(<<Magic:14/binary, PtrSize:8, Flags:8, Rest/binary>>, Elf)
             end;
         false ->
             %% Older Go: pointers to version and module strings
-            _Endian = case Flags band 1 of 0 -> little; 1 -> big end,
+            _Endian =
+                case Flags band 1 of
+                    0 -> little;
+                    1 -> big
+                end,
             decode_buildinfo_ptrs(Rest, PtrSize, _Endian, Elf)
     end;
 decode_buildinfo(_, _) ->
@@ -151,18 +192,22 @@ decode_buildinfo_inline(Data) ->
             case decode_varint_string(Rest1) of
                 {ok, ModInfo, _Rest2} ->
                     {Mod, ModVer, Deps, BuildSettings} = parse_mod_info(ModInfo),
-                    {ok, #{version => Version,
-                           main_module => Mod,
-                           mod_version => ModVer,
-                           deps => Deps,
-                           build_settings => BuildSettings}};
+                    {ok, #{
+                        version => Version,
+                        main_module => Mod,
+                        mod_version => ModVer,
+                        deps => Deps,
+                        build_settings => BuildSettings
+                    }};
                 {error, _} ->
                     %% No module info, just version
-                    {ok, #{version => Version,
-                           main_module => undefined,
-                           mod_version => undefined,
-                           deps => [],
-                           build_settings => []}}
+                    {ok, #{
+                        version => Version,
+                        main_module => undefined,
+                        mod_version => undefined,
+                        deps => [],
+                        build_settings => []
+                    }}
             end;
         {error, _} = Error ->
             Error
@@ -181,8 +226,13 @@ decode_buildinfo_ptrs(Data, PtrSize, Endian, Elf) ->
             {error, truncated_buildinfo}
     end.
 
--spec decode_buildinfo_from_ptrs(non_neg_integer(), non_neg_integer(),
-                                  4 | 8, little | big, #elf{}) ->
+-spec decode_buildinfo_from_ptrs(
+    non_neg_integer(),
+    non_neg_integer(),
+    4 | 8,
+    little | big,
+    #elf{}
+) ->
     {ok, map()} | {error, term()}.
 decode_buildinfo_from_ptrs(VerPtr, ModPtr, PtrSize, Endian, Elf) ->
     case read_go_string(VerPtr, PtrSize, Endian, Elf) of
@@ -190,17 +240,21 @@ decode_buildinfo_from_ptrs(VerPtr, ModPtr, PtrSize, Endian, Elf) ->
             case read_go_string(ModPtr, PtrSize, Endian, Elf) of
                 {ok, ModInfo} ->
                     {Mod, ModVer, Deps, BuildSettings} = parse_mod_info(ModInfo),
-                    {ok, #{version => Version,
-                           main_module => Mod,
-                           mod_version => ModVer,
-                           deps => Deps,
-                           build_settings => BuildSettings}};
+                    {ok, #{
+                        version => Version,
+                        main_module => Mod,
+                        mod_version => ModVer,
+                        deps => Deps,
+                        build_settings => BuildSettings
+                    }};
                 {error, _} ->
-                    {ok, #{version => Version,
-                           main_module => undefined,
-                           mod_version => undefined,
-                           deps => [],
-                           build_settings => []}}
+                    {ok, #{
+                        version => Version,
+                        main_module => undefined,
+                        mod_version => undefined,
+                        deps => [],
+                        build_settings => []
+                    }}
             end;
         {error, _} = Error ->
             Error
@@ -219,7 +273,8 @@ read_go_string(Vaddr, PtrSize, Endian, Elf) ->
                 true ->
                     case Endian of
                         little ->
-                            <<_:Off/binary, DataPtr:PtrBits/little, Len:PtrBits/little, _/binary>> = Bin,
+                            <<_:Off/binary, DataPtr:PtrBits/little, Len:PtrBits/little, _/binary>> =
+                                Bin,
                             read_bytes_at_vaddr(DataPtr, Len, Elf);
                         big ->
                             <<_:Off/binary, DataPtr:PtrBits/big, Len:PtrBits/big, _/binary>> = Bin,
@@ -258,8 +313,13 @@ parse_mod_info(Info) ->
     Lines = binary:split(Info, <<"\n">>, [global, trim_all]),
     parse_mod_lines(Lines, undefined, undefined, [], []).
 
--spec parse_mod_lines([binary()], binary() | undefined, binary() | undefined,
-                       [#go_dep{}], [{binary(), binary()}]) ->
+-spec parse_mod_lines(
+    [binary()],
+    binary() | undefined,
+    binary() | undefined,
+    [#go_dep{}],
+    [{binary(), binary()}]
+) ->
     {binary() | undefined, binary() | undefined, [#go_dep{}], [{binary(), binary()}]}.
 parse_mod_lines([], Mod, ModVer, Deps, Build) ->
     {Mod, ModVer, lists:reverse(Deps), lists:reverse(Build)};
@@ -336,33 +396,36 @@ parse_gopclntab(Elf) ->
             Error
     end.
 
-decode_gopclntab(<<Magic:4/binary, _Pad:2/binary, _MinLC:8, PtrSize:8, Rest/binary>> = Tab)
-  when (Magic =:= ?GOPCLNTAB_MAGIC_120 orelse
+decode_gopclntab(<<Magic:4/binary, _Pad:2/binary, _MinLC:8, PtrSize:8, Rest/binary>> = Tab) when
+    (Magic =:= ?GOPCLNTAB_MAGIC_120 orelse
         Magic =:= ?GOPCLNTAB_MAGIC_118 orelse
         Magic =:= ?GOPCLNTAB_MAGIC_116),
-       (PtrSize =:= 4 orelse PtrSize =:= 8) ->
-    GoVer = case Magic of
-        ?GOPCLNTAB_MAGIC_120 -> '1.20';
-        ?GOPCLNTAB_MAGIC_118 -> '1.18';
-        ?GOPCLNTAB_MAGIC_116 -> '1.16'
-    end,
+    (PtrSize =:= 4 orelse PtrSize =:= 8)
+->
+    GoVer =
+        case Magic of
+            ?GOPCLNTAB_MAGIC_120 -> '1.20';
+            ?GOPCLNTAB_MAGIC_118 -> '1.18';
+            ?GOPCLNTAB_MAGIC_116 -> '1.16'
+        end,
     PtrBits = PtrSize * 8,
     case GoVer of
         V when V =:= '1.20'; V =:= '1.18' ->
             %% Header fields after magic+pad+minLC+ptrSize (8 bytes consumed)
             case Rest of
-                <<Nfunc:PtrBits/little,
-                  Nfiles:PtrBits/little,
-                  TextStart:PtrBits/little,
-                  FuncnameOff:PtrBits/little,
-                  _CutabOff:PtrBits/little,
-                  _FiletabOff:PtrBits/little,
-                  _PctabOff:PtrBits/little,
-                  PcDataOff:PtrBits/little,
-                  FuncTabData/binary>> ->
+                <<Nfunc:PtrBits/little, Nfiles:PtrBits/little, TextStart:PtrBits/little,
+                    FuncnameOff:PtrBits/little, _CutabOff:PtrBits/little,
+                    _FiletabOff:PtrBits/little, _PctabOff:PtrBits/little, PcDataOff:PtrBits/little,
+                    FuncTabData/binary>> ->
                     _ = Nfiles,
-                    parse_functab(Tab, FuncTabData, Nfunc, TextStart,
-                                  FuncnameOff, PcDataOff);
+                    parse_functab(
+                        Tab,
+                        FuncTabData,
+                        Nfunc,
+                        TextStart,
+                        FuncnameOff,
+                        PcDataOff
+                    );
                 _ ->
                     {error, truncated_gopclntab}
             end;
@@ -370,17 +433,18 @@ decode_gopclntab(<<Magic:4/binary, _Pad:2/binary, _MinLC:8, PtrSize:8, Rest/bina
             %% Go 1.16-1.17: slightly different header layout
             %% Same structure but no textStart field
             case Rest of
-                <<Nfunc:PtrBits/little,
-                  Nfiles:PtrBits/little,
-                  FuncnameOff:PtrBits/little,
-                  _CutabOff:PtrBits/little,
-                  _FiletabOff:PtrBits/little,
-                  _PctabOff:PtrBits/little,
-                  PcDataOff:PtrBits/little,
-                  FuncTabData/binary>> ->
+                <<Nfunc:PtrBits/little, Nfiles:PtrBits/little, FuncnameOff:PtrBits/little,
+                    _CutabOff:PtrBits/little, _FiletabOff:PtrBits/little, _PctabOff:PtrBits/little,
+                    PcDataOff:PtrBits/little, FuncTabData/binary>> ->
                     _ = Nfiles,
-                    parse_functab(Tab, FuncTabData, Nfunc, 0,
-                                  FuncnameOff, PcDataOff);
+                    parse_functab(
+                        Tab,
+                        FuncTabData,
+                        Nfunc,
+                        0,
+                        FuncnameOff,
+                        PcDataOff
+                    );
                 _ ->
                     {error, truncated_gopclntab}
             end
@@ -389,21 +453,49 @@ decode_gopclntab(_) ->
     {error, bad_gopclntab_magic}.
 
 parse_functab(Tab, FuncTabData, Nfunc, TextStart, FuncnameOff, PcDataOff) ->
-    Funcs = parse_functab_entries(Tab, FuncTabData, Nfunc, TextStart,
-                                  FuncnameOff, PcDataOff, []),
+    Funcs = parse_functab_entries(
+        Tab,
+        FuncTabData,
+        Nfunc,
+        TextStart,
+        FuncnameOff,
+        PcDataOff,
+        []
+    ),
     {ok, Funcs}.
 
 parse_functab_entries(_Tab, _Data, 0, _TextStart, _FuncnameOff, _PcDataOff, Acc) ->
     lists:reverse(Acc);
-parse_functab_entries(Tab, <<FuncOff:32/little, FuncDataOff:32/little, Rest/binary>>,
-                      N, TextStart, FuncnameOff, PcDataOff, Acc) ->
+parse_functab_entries(
+    Tab,
+    <<FuncOff:32/little, FuncDataOff:32/little, Rest/binary>>,
+    N,
+    TextStart,
+    FuncnameOff,
+    PcDataOff,
+    Acc
+) ->
     case resolve_func(Tab, FuncOff, FuncDataOff, TextStart, FuncnameOff, PcDataOff) of
         {ok, Func} ->
-            parse_functab_entries(Tab, Rest, N - 1, TextStart, FuncnameOff, PcDataOff,
-                                  [Func | Acc]);
+            parse_functab_entries(
+                Tab,
+                Rest,
+                N - 1,
+                TextStart,
+                FuncnameOff,
+                PcDataOff,
+                [Func | Acc]
+            );
         {error, _} ->
-            parse_functab_entries(Tab, Rest, N - 1, TextStart, FuncnameOff, PcDataOff,
-                                  Acc)
+            parse_functab_entries(
+                Tab,
+                Rest,
+                N - 1,
+                TextStart,
+                FuncnameOff,
+                PcDataOff,
+                Acc
+            )
     end;
 parse_functab_entries(_Tab, _Data, _N, _TextStart, _FuncnameOff, _PcDataOff, Acc) ->
     lists:reverse(Acc).
@@ -434,7 +526,7 @@ resolve_func(Tab, FuncOff, FuncDataOff, TextStart, FuncnameOff, PcDataOff) ->
 read_cstring(Bin) ->
     case binary:match(Bin, <<0>>) of
         {Pos, 1} -> binary:part(Bin, 0, Pos);
-        nomatch  -> Bin
+        nomatch -> Bin
     end.
 
 %% Extract Go package from a fully qualified function name.
@@ -449,7 +541,7 @@ extract_package(Name) ->
             %% No slash: package is everything before the first dot
             case binary:match(Name, <<".">>) of
                 {Pos, 1} -> binary:part(Name, 0, Pos);
-                nomatch  -> Name
+                nomatch -> Name
             end;
         Matches ->
             %% Has slashes: find the last slash, then the first dot after it

@@ -1,5 +1,6 @@
 -module(elf_parse_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 
 %% ---------------------------------------------------------------------------
@@ -19,19 +20,20 @@
 %%
 %% Total: 0x150 = 336 bytes
 
--define(TEXT_OFF,    16#078).
--define(TEXT_SIZE,   4).
--define(TEXT_VADDR,  16#400000).
--define(STRTAB_OFF,  16#07C).
+-define(TEXT_OFF, 16#078).
+-define(TEXT_SIZE, 4).
+-define(TEXT_VADDR, 16#400000).
+-define(STRTAB_OFF, 16#07C).
 -define(STRTAB_SIZE, 17).
--define(SHDR_OFF,    16#090).
+-define(SHDR_OFF, 16#090).
 
 minimal_elf64_le() ->
     %% .shstrtab content: "\0.text\0.shstrtab\0"
     StrTab = <<0, ".text", 0, ".shstrtab", 0>>,
     ?STRTAB_SIZE = byte_size(StrTab),
 
-    TextContent = <<16#90, 16#90, 16#90, 16#C3>>,  % 3x NOP + RET
+    % 3x NOP + RET
+    TextContent = <<16#90, 16#90, 16#90, 16#C3>>,
     ?TEXT_SIZE = byte_size(TextContent),
 
     Header = elf_header_le(
@@ -62,16 +64,26 @@ minimal_elf64_le() ->
     %% Section 0: SHN_UNDEF (null, all zeros)
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
     %% Section 1: .text (name_idx=1 in strtab)
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, ?TEXT_OFF, ?TEXT_SIZE, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        ?TEXT_OFF,
+        ?TEXT_SIZE,
+        0,
+        0,
+        16,
+        0
+    ),
     %% Section 2: .shstrtab (name_idx=7 in strtab)
     Shdr2 = shdr_le(7, ?SHT_STRTAB, 0, 0, ?STRTAB_OFF, ?STRTAB_SIZE, 0, 0, 1, 0),
 
     %% Pad from end of strtab (0x07C + 17 = 0x08D) to SHDR_OFF (0x090)
     PadSize = ?SHDR_OFF - (?STRTAB_OFF + ?STRTAB_SIZE),
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary, Shdr0/binary,
+        Shdr1/binary, Shdr2/binary>>.
 
 %% Same binary but as ET_DYN (PIE) without PT_INTERP → static PIE
 minimal_elf64_le_dyn() ->
@@ -83,10 +95,12 @@ minimal_elf64_le_dyn() ->
 %% Same binary but with PT_INTERP added → dynamically linked
 minimal_elf64_le_dynamic() ->
     StrTab = <<0, ".text", 0, ".shstrtab", 0>>,
-    StrTabSize = byte_size(StrTab),  % 17
+    % 17
+    StrTabSize = byte_size(StrTab),
     TextContent = <<16#90, 16#90, 16#90, 16#C3>>,
     InterpPath = <<"/lib64/ld-linux-x86-64.so.2", 0>>,
-    InterpSize = byte_size(InterpPath),  % 28
+    % 28
+    InterpSize = byte_size(InterpPath),
 
     %% Layout:
     %%   0x000  ELF header (64)
@@ -102,49 +116,109 @@ minimal_elf64_le_dynamic() ->
     StrtabOff = 16#0D0,
     ShdrOff = 16#0E8,
 
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 2, 3, 2),
-    Phdr0 = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                     ?TEXT_VADDR, ?TEXT_VADDR, 4, 4, 16#1000),
-    Phdr1 = phdr_le(?PT_INTERP, ?PF_R, InterpOff,
-                     0, 0, InterpSize, InterpSize, 1),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        2,
+        3,
+        2
+    ),
+    Phdr0 = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        4,
+        4,
+        16#1000
+    ),
+    Phdr1 = phdr_le(
+        ?PT_INTERP,
+        ?PF_R,
+        InterpOff,
+        0,
+        0,
+        InterpSize,
+        InterpSize,
+        1
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, 4, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        4,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_le(7, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     PadSize = ShdrOff - (StrtabOff + StrTabSize),
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr0/binary, Phdr1/binary,
-      TextContent/binary, InterpPath/binary, StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr0/binary, Phdr1/binary, TextContent/binary, InterpPath/binary,
+        StrTab/binary, Pad/binary, Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
 
 %% Minimal big-endian ELF64 (SPARC-like, but we use x86_64 machine for simplicity).
 minimal_elf64_be() ->
     StrTab = <<0, ".text", 0, ".shstrtab", 0>>,
     TextContent = <<16#90, 16#90, 16#90, 16#C3>>,
 
-    Header = elf_header_be(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ?SHDR_OFF, 1, 3, 2),
-    Phdr = phdr_be(?PT_LOAD, ?PF_R bor ?PF_X, ?TEXT_OFF,
-                   ?TEXT_VADDR, ?TEXT_VADDR, ?TEXT_SIZE, ?TEXT_SIZE, 16#1000),
+    Header = elf_header_be(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ?SHDR_OFF,
+        1,
+        3,
+        2
+    ),
+    Phdr = phdr_be(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        ?TEXT_OFF,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        ?TEXT_SIZE,
+        ?TEXT_SIZE,
+        16#1000
+    ),
 
     Shdr0 = shdr_be(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_be(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, ?TEXT_OFF, ?TEXT_SIZE, 0, 0, 16, 0),
+    Shdr1 = shdr_be(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        ?TEXT_OFF,
+        ?TEXT_SIZE,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_be(7, ?SHT_STRTAB, 0, 0, ?STRTAB_OFF, ?STRTAB_SIZE, 0, 0, 1, 0),
 
     PadSize = ?SHDR_OFF - (?STRTAB_OFF + ?STRTAB_SIZE),
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary, Shdr0/binary,
+        Shdr1/binary, Shdr2/binary>>.
 
 %% With .debug_info section
 minimal_elf64_le_debug() ->
     %% strtab: "\0.text\0.debug_info\0.shstrtab\0"
     StrTab = <<0, ".text", 0, ".debug_info", 0, ".shstrtab", 0>>,
-    StrTabSize = byte_size(StrTab),  % 31
+    % 31
+    StrTabSize = byte_size(StrTab),
 
     TextContent = <<16#90, 16#90, 16#90, 16#C3>>,
     DebugContent = <<"DWARF">>,
@@ -163,14 +237,40 @@ minimal_elf64_le_debug() ->
     %% Align section headers to 16 bytes
     ShdrOff = 16#0A0,
 
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, 4, 3),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, 4, 4, 16#1000),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        4,
+        3
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        4,
+        4,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, 4, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        4,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_le(7, ?SHT_PROGBITS, 0, 0, DebugOff, DebugSize, 0, 0, 1, 0),
     %% .shstrtab name_idx = 19 (after "\0.text\0.debug_info\0")
     Shdr3 = shdr_le(19, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
@@ -179,9 +279,8 @@ minimal_elf64_le_debug() ->
     PadSize = ShdrOff - (StrtabOff + StrTabSize),
     Pad = <<0:(PadSize * 8)>>,
 
-    <<Header/binary, Phdr/binary, TextContent/binary, DebugContent/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, DebugContent/binary, StrTab/binary,
+        Pad/binary, Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary>>.
 
 %% ---------------------------------------------------------------------------
 %% Binary construction helpers (LE)
@@ -189,92 +288,74 @@ minimal_elf64_le_debug() ->
 
 elf_header_le(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
     <<16#7F, "ELF",
-      2:8,           % ELFCLASS64
-      1:8,           % ELFDATA2LSB
-      1:8,           % EV_CURRENT
-      0:8,           % ELFOSABI_NONE
-      0:64,          % padding
-      Type:16/little,
-      Machine:16/little,
-      1:32/little,   % e_version
-      Entry:64/little,
-      PhOff:64/little,
-      ShOff:64/little,
-      0:32/little,   % e_flags
-      64:16/little,  % e_ehsize
-      56:16/little,  % e_phentsize
-      PhNum:16/little,
-      64:16/little,  % e_shentsize
-      ShNum:16/little,
-      ShStrNdx:16/little>>.
+        % ELFCLASS64
+        2:8,
+        % ELFDATA2LSB
+        1:8,
+        % EV_CURRENT
+        1:8,
+        % ELFOSABI_NONE
+        0:8,
+        % padding
+        0:64, Type:16/little, Machine:16/little,
+        % e_version
+        1:32/little, Entry:64/little, PhOff:64/little, ShOff:64/little,
+        % e_flags
+        0:32/little,
+        % e_ehsize
+        64:16/little,
+        % e_phentsize
+        56:16/little, PhNum:16/little,
+        % e_shentsize
+        64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
 
 phdr_le(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/little,
-      PFlags:32/little,
-      POffset:64/little,
-      PVaddr:64/little,
-      PPaddr:64/little,
-      PFilesz:64/little,
-      PMemsz:64/little,
-      PAlign:64/little>>.
+    <<PType:32/little, PFlags:32/little, POffset:64/little, PVaddr:64/little, PPaddr:64/little,
+        PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
 
-shdr_le(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-        ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/little,
-      ShType:32/little,
-      ShFlags:64/little,
-      ShAddr:64/little,
-      ShOffset:64/little,
-      ShSize:64/little,
-      ShLink:32/little,
-      ShInfo:32/little,
-      ShAddralign:64/little,
-      ShEntsize:64/little>>.
+shdr_le(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/little, ShType:32/little, ShFlags:64/little, ShAddr:64/little, ShOffset:64/little,
+        ShSize:64/little, ShLink:32/little, ShInfo:32/little, ShAddralign:64/little,
+        ShEntsize:64/little>>.
 
 %% ---------------------------------------------------------------------------
 %% Binary construction helpers (BE)
 %% ---------------------------------------------------------------------------
 
 elf_header_be(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
-    <<16#7F, "ELF",
-      2:8, 2:8, 1:8, 0:8,
-      0:64,
-      Type:16/big,
-      Machine:16/big,
-      1:32/big,
-      Entry:64/big,
-      PhOff:64/big,
-      ShOff:64/big,
-      0:32/big,
-      64:16/big,
-      56:16/big,
-      PhNum:16/big,
-      64:16/big,
-      ShNum:16/big,
-      ShStrNdx:16/big>>.
+    <<16#7F, "ELF", 2:8, 2:8, 1:8, 0:8, 0:64, Type:16/big, Machine:16/big, 1:32/big, Entry:64/big,
+        PhOff:64/big, ShOff:64/big, 0:32/big, 64:16/big, 56:16/big, PhNum:16/big, 64:16/big,
+        ShNum:16/big, ShStrNdx:16/big>>.
 
 phdr_be(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/big,
-      PFlags:32/big,
-      POffset:64/big,
-      PVaddr:64/big,
-      PPaddr:64/big,
-      PFilesz:64/big,
-      PMemsz:64/big,
-      PAlign:64/big>>.
+    <<PType:32/big, PFlags:32/big, POffset:64/big, PVaddr:64/big, PPaddr:64/big, PFilesz:64/big,
+        PMemsz:64/big, PAlign:64/big>>.
 
-shdr_be(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-        ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/big,
-      ShType:32/big,
-      ShFlags:64/big,
-      ShAddr:64/big,
-      ShOffset:64/big,
-      ShSize:64/big,
-      ShLink:32/big,
-      ShInfo:32/big,
-      ShAddralign:64/big,
-      ShEntsize:64/big>>.
+shdr_be(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/big, ShType:32/big, ShFlags:64/big, ShAddr:64/big, ShOffset:64/big, ShSize:64/big,
+        ShLink:32/big, ShInfo:32/big, ShAddralign:64/big, ShEntsize:64/big>>.
 
 %% ===========================================================================
 %% Tests
@@ -298,15 +379,14 @@ parse_valid_le_test() ->
 %% --- Invalid magic ---
 
 parse_invalid_magic_test() ->
-    ?assertEqual({error, not_elf}, elf_parse:from_binary(<<0,0,0,0,0:480>>)).
+    ?assertEqual({error, not_elf}, elf_parse:from_binary(<<0, 0, 0, 0, 0:480>>)).
 
 parse_truncated_test() ->
     ?assertEqual({error, truncated}, elf_parse:from_binary(<<16#7F, "ELF">>)).
 
 parse_not_elf64_test() ->
     %% ELF32 class = 1
-    Bin = <<16#7F, "ELF", 1:8, 1:8, 1:8, 0:8, 0:64,
-            0:(48*8)>>,
+    Bin = <<16#7F, "ELF", 1:8, 1:8, 1:8, 0:8, 0:64, 0:(48 * 8)>>,
     ?assertEqual({error, not_elf64}, elf_parse:from_binary(Bin)).
 
 %% --- Section name resolution ---
@@ -421,8 +501,10 @@ parse_big_endian_test() ->
 %% --- from_file error ---
 
 from_file_nonexistent_test() ->
-    ?assertMatch({error, {file, enoent}},
-                 elf_parse:from_file("/nonexistent/file")).
+    ?assertMatch(
+        {error, {file, enoent}},
+        elf_parse:from_file("/nonexistent/file")
+    ).
 
 %% --- Section type and flag decoding ---
 
@@ -442,10 +524,18 @@ shdr_types_test() ->
 section_data_nobits_test() ->
     %% Construct a section header with type=nobits
     NobitsShdr = #elf_shdr{
-        index = 0, name_idx = 0, name = <<".bss">>,
-        type = nobits, flags = [alloc, write],
-        addr = 0, offset = 0, size = 4096,
-        link = 0, info = 0, addralign = 16, entsize = 0
+        index = 0,
+        name_idx = 0,
+        name = <<".bss">>,
+        type = nobits,
+        flags = [alloc, write],
+        addr = 0,
+        offset = 0,
+        size = 4096,
+        link = 0,
+        info = 0,
+        addralign = 16,
+        entsize = 0
     },
     {ok, Elf} = elf_parse:from_binary(minimal_elf64_le()),
     ?assertEqual({error, nobits}, elf_parse:section_data(NobitsShdr, Elf)).

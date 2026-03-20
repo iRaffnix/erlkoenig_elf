@@ -1,5 +1,6 @@
 -module(elf_lang_go_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 -include("elf_lang_go.hrl").
 
@@ -8,45 +9,29 @@
 %% ---------------------------------------------------------------------------
 
 elf_header_le(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
-    <<16#7F, "ELF",
-      2:8, 1:8, 1:8, 0:8,
-      0:64,
-      Type:16/little,
-      Machine:16/little,
-      1:32/little,
-      Entry:64/little,
-      PhOff:64/little,
-      ShOff:64/little,
-      0:32/little,
-      64:16/little,
-      56:16/little,
-      PhNum:16/little,
-      64:16/little,
-      ShNum:16/little,
-      ShStrNdx:16/little>>.
+    <<16#7F, "ELF", 2:8, 1:8, 1:8, 0:8, 0:64, Type:16/little, Machine:16/little, 1:32/little,
+        Entry:64/little, PhOff:64/little, ShOff:64/little, 0:32/little, 64:16/little, 56:16/little,
+        PhNum:16/little, 64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
 
 phdr_le(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/little,
-      PFlags:32/little,
-      POffset:64/little,
-      PVaddr:64/little,
-      PPaddr:64/little,
-      PFilesz:64/little,
-      PMemsz:64/little,
-      PAlign:64/little>>.
+    <<PType:32/little, PFlags:32/little, POffset:64/little, PVaddr:64/little, PPaddr:64/little,
+        PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
 
-shdr_le(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-        ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/little,
-      ShType:32/little,
-      ShFlags:64/little,
-      ShAddr:64/little,
-      ShOffset:64/little,
-      ShSize:64/little,
-      ShLink:32/little,
-      ShInfo:32/little,
-      ShAddralign:64/little,
-      ShEntsize:64/little>>.
+shdr_le(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/little, ShType:32/little, ShFlags:64/little, ShAddr:64/little, ShOffset:64/little,
+        ShSize:64/little, ShLink:32/little, ShInfo:32/little, ShAddralign:64/little,
+        ShEntsize:64/little>>.
 
 %% ---------------------------------------------------------------------------
 %% Varint encoding helper
@@ -72,7 +57,8 @@ make_buildinfo_section(Version, ModInfo) ->
     %% 14-byte magic + 1 byte PtrSize + 1 byte Flags
     Magic = <<16#FF, " Go buildinf:">>,
     PtrSize = 8,
-    Flags = 2,  %% bit1 set = inline strings
+    %% bit1 set = inline strings
+    Flags = 2,
     Header16 = <<Magic/binary, PtrSize:8, Flags:8>>,
     %% Pad to 32 bytes
     PadLen = 32 - byte_size(Header16),
@@ -124,15 +110,10 @@ make_gopclntab(FuncSpecs, TextStart) ->
     Pad = <<0, 0>>,
     MinLC = 1,
 
-    Header = <<Magic/binary, Pad/binary, MinLC:8, PtrSize:8,
-               Nfunc:PtrBits/little,
-               Nfiles:PtrBits/little,
-               TextStart:PtrBits/little,
-               FuncnameOff:PtrBits/little,
-               CutabOff:PtrBits/little,
-               FiletabOff:PtrBits/little,
-               PctabOff:PtrBits/little,
-               PcDataOff:PtrBits/little>>,
+    Header =
+        <<Magic/binary, Pad/binary, MinLC:8, PtrSize:8, Nfunc:PtrBits/little, Nfiles:PtrBits/little,
+            TextStart:PtrBits/little, FuncnameOff:PtrBits/little, CutabOff:PtrBits/little,
+            FiletabOff:PtrBits/little, PctabOff:PtrBits/little, PcDataOff:PtrBits/little>>,
 
     %% Build func table entries
     FuncTab = build_func_table(FuncSpecs, Nfunc),
@@ -204,31 +185,76 @@ make_go_elf(BuildInfoData, GopclntabData) ->
     PadSize = ShdrOff - ShdrOffUnaligned,
 
     NumSections = 5,
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, NumSections, 4),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        NumSections,
+        4
+    ),
 
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, TextSize, TextSize, 16#1000),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     %% Section 0: null
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
     %% Section 1: .text (name_idx=1)
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
     %% Section 2: .go.buildinfo (name_idx=7)
-    Shdr2 = shdr_le(7, ?SHT_PROGBITS, 0,
-                     0, BuildInfoOff, BuildInfoSize, 0, 0, 1, 0),
+    Shdr2 = shdr_le(
+        7,
+        ?SHT_PROGBITS,
+        0,
+        0,
+        BuildInfoOff,
+        BuildInfoSize,
+        0,
+        0,
+        1,
+        0
+    ),
     %% Section 3: .gopclntab (name_idx=21)
-    Shdr3 = shdr_le(21, ?SHT_PROGBITS, 0,
-                     0, GopclntabOff, GopclntabSize, 0, 0, 1, 0),
+    Shdr3 = shdr_le(
+        21,
+        ?SHT_PROGBITS,
+        0,
+        0,
+        GopclntabOff,
+        GopclntabSize,
+        0,
+        0,
+        1,
+        0
+    ),
     %% Section 4: .shstrtab (name_idx=32)
     Shdr4 = shdr_le(32, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary,
-      TextContent/binary, BuildInfoData/binary, GopclntabData/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary, Shdr4/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, BuildInfoData/binary, GopclntabData/binary,
+        StrTab/binary, Pad/binary, Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary,
+        Shdr4/binary>>.
 
 %% Build ELF with only .go.buildinfo (no gopclntab)
 make_go_elf_buildinfo_only(BuildInfoData) ->
@@ -247,23 +273,57 @@ make_go_elf_buildinfo_only(BuildInfoData) ->
     PadSize = ShdrOff - ShdrOffUnaligned,
 
     NumSections = 4,
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, NumSections, 3),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, TextSize, TextSize, 16#1000),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        NumSections,
+        3
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
-    Shdr2 = shdr_le(7, ?SHT_PROGBITS, 0,
-                     0, BuildInfoOff, BuildInfoSize, 0, 0, 1, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
+    Shdr2 = shdr_le(
+        7,
+        ?SHT_PROGBITS,
+        0,
+        0,
+        BuildInfoOff,
+        BuildInfoSize,
+        0,
+        0,
+        1,
+        0
+    ),
     Shdr3 = shdr_le(21, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary,
-      TextContent/binary, BuildInfoData/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, BuildInfoData/binary, StrTab/binary,
+        Pad/binary, Shdr0/binary, Shdr1/binary, Shdr2/binary, Shdr3/binary>>.
 
 %% Plain ELF with no Go sections
 make_plain_elf() ->
@@ -278,38 +338,67 @@ make_plain_elf() ->
     ShdrOff = (ShdrOffUnaligned + 7) band (bnot 7),
     PadSize = ShdrOff - ShdrOffUnaligned,
 
-    Header = elf_header_le(?ET_EXEC, ?EM_X86_64, ?TEXT_VADDR, 64,
-                           ShdrOff, 1, 3, 2),
-    Phdr = phdr_le(?PT_LOAD, ?PF_R bor ?PF_X, TextOff,
-                   ?TEXT_VADDR, ?TEXT_VADDR, TextSize, TextSize, 16#1000),
+    Header = elf_header_le(
+        ?ET_EXEC,
+        ?EM_X86_64,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        3,
+        2
+    ),
+    Phdr = phdr_le(
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_le(7, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary,
-      StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary, Shdr0/binary,
+        Shdr1/binary, Shdr2/binary>>.
 
 %% ---------------------------------------------------------------------------
 %% Test data
 %% ---------------------------------------------------------------------------
 
 sample_mod_info() ->
-    <<"path\tgithub.com/user/app\n"
-      "mod\tgithub.com/user/app\t(devel)\t\n"
-      "dep\tgithub.com/lib/pq\tv1.10.9\th1:abc123=\n"
-      "dep\tgolang.org/x/text\tv0.14.0\th1:def456=\n"
-      "build\tGOOS=linux\n"
-      "build\tGOARCH=amd64\n">>.
+    <<
+        "path\tgithub.com/user/app\n"
+        "mod\tgithub.com/user/app\t(devel)\t\n"
+        "dep\tgithub.com/lib/pq\tv1.10.9\th1:abc123=\n"
+        "dep\tgolang.org/x/text\tv0.14.0\th1:def456=\n"
+        "build\tGOOS=linux\n"
+        "build\tGOARCH=amd64\n"
+    >>.
 
 sample_func_specs() ->
-    [{<<"runtime.goexit">>, 16#1000},
-     {<<"main.main">>, 16#2000},
-     {<<"github.com/user/pkg.Handler">>, 16#3000},
-     {<<"github.com/user/pkg.init">>, 16#3100}].
+    [
+        {<<"runtime.goexit">>, 16#1000},
+        {<<"main.main">>, 16#2000},
+        {<<"github.com/user/pkg.Handler">>, 16#3000},
+        {<<"github.com/user/pkg.init">>, 16#3100}
+    ].
 
 %% ===========================================================================
 %% Tests

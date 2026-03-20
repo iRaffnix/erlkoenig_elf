@@ -1,13 +1,31 @@
-%%% @doc Binary patching module — conservative, in-place function neutralization.
-%%%
-%%% Patches ELF binaries to neutralize functions by making them return
-%%% immediately. No code insertion, no size changes, no metadata modification.
-%%% The file size stays exactly the same after patching.
-%%%
-%%% Supported architectures: x86_64 and aarch64.
-%%% Supported strategies: ret (return immediately), ret_zero (return 0),
-%%% ret_error (return -1).
+%%
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(elf_patch).
+-moduledoc """
+Binary patching module -- conservative, in-place function neutralization.
+
+Patches ELF binaries to neutralize functions by making them return
+immediately. No code insertion, no size changes, no metadata modification.
+The file size stays exactly the same after patching.
+
+Supported architectures: x86_64 and aarch64.
+Supported strategies: ret (return immediately), ret_zero (return 0),
+ret_error (return -1).
+""".
 
 -include("elf_parse.hrl").
 
@@ -28,59 +46,57 @@
 %% Public API
 %% ---------------------------------------------------------------------------
 
-%% @doc Patch a function by name (looks up in symtab).
+-doc "Patch a function by name (looks up in symtab).".
 -spec patch_function(file:filename(), binary(), patch_strategy()) ->
-    {ok, #{function => binary(),
-           addr => non_neg_integer(),
-           size => non_neg_integer(),
-           strategy => patch_strategy(),
-           backup => file:filename()}} |
-    {error, term()}.
+    {ok, #{
+        function => binary(),
+        addr => non_neg_integer(),
+        size => non_neg_integer(),
+        strategy => patch_strategy(),
+        backup => file:filename()
+    }}
+    | {error, term()}.
 patch_function(Path, FuncName, Strategy) ->
-    case elf_parse:from_file(Path) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, Elf} ->
+    maybe
+        {ok, Elf} ?= elf_parse:from_file(Path),
+        {ok, Sym} ?=
             case elf_parse_symtab:lookup(Elf, FuncName) of
-                error ->
-                    {error, {symbol_not_found, FuncName}};
-                {ok, #elf_sym{type = func, value = Addr, size = Size}} ->
-                    case do_patch(Path, Elf, Addr, Size, Strategy) of
-                        {ok, Backup} ->
-                            {ok, #{function => FuncName,
-                                   addr => Addr,
-                                   size => Size,
-                                   strategy => Strategy,
-                                   backup => Backup}};
-                        {error, _} = Err ->
-                            Err
-                    end;
-                {ok, #elf_sym{type = Type}} ->
-                    {error, {not_a_function, Type}}
-            end
+                error -> {error, {symbol_not_found, FuncName}};
+                {ok, #elf_sym{type = func} = S} -> {ok, S};
+                {ok, #elf_sym{type = Type}} -> {error, {not_a_function, Type}}
+            end,
+        #elf_sym{value = Addr, size = Size} = Sym,
+        {ok, Backup} ?= do_patch(Path, Elf, Addr, Size, Strategy),
+        {ok, #{
+            function => FuncName,
+            addr => Addr,
+            size => Size,
+            strategy => Strategy,
+            backup => Backup
+        }}
     end.
 
-%% @doc Patch at a specific address + size (for stripped binaries).
--spec patch_function_at(file:filename(), non_neg_integer(), non_neg_integer(),
-                        patch_strategy()) ->
+-doc "Patch at a specific address + size (for stripped binaries).".
+-spec patch_function_at(
+    file:filename(),
+    non_neg_integer(),
+    non_neg_integer(),
+    patch_strategy()
+) ->
     {ok, map()} | {error, term()}.
 patch_function_at(Path, Addr, Size, Strategy) ->
-    case elf_parse:from_file(Path) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, Elf} ->
-            case do_patch(Path, Elf, Addr, Size, Strategy) of
-                {ok, Backup} ->
-                    {ok, #{addr => Addr,
-                           size => Size,
-                           strategy => Strategy,
-                           backup => Backup}};
-                {error, _} = Err ->
-                    Err
-            end
+    maybe
+        {ok, Elf} ?= elf_parse:from_file(Path),
+        {ok, Backup} ?= do_patch(Path, Elf, Addr, Size, Strategy),
+        {ok, #{
+            addr => Addr,
+            size => Size,
+            strategy => Strategy,
+            backup => Backup
+        }}
     end.
 
-%% @doc Verify a patched binary is still valid ELF.
+-doc "Verify a patched binary is still valid ELF.".
 -spec verify_patch(file:filename()) -> ok | {error, term()}.
 verify_patch(Path) ->
     case elf_parse:from_file(Path) of
@@ -90,12 +106,16 @@ verify_patch(Path) ->
             {error, Reason}
     end.
 
-%% @doc Compare original and patched, list what changed.
+-doc "Compare original and patched, list what changed.".
 -spec list_patches(file:filename(), file:filename()) ->
-    {ok, [#{offset => non_neg_integer(),
+    {ok, [
+        #{
+            offset => non_neg_integer(),
             original => binary(),
-            patched => binary()}]} |
-    {error, term()}.
+            patched => binary()
+        }
+    ]}
+    | {error, term()}.
 list_patches(OrigPath, PatchedPath) ->
     case {file:read_file(OrigPath), file:read_file(PatchedPath)} of
         {{ok, Orig}, {ok, Patched}} ->
@@ -115,29 +135,32 @@ list_patches(OrigPath, PatchedPath) ->
 %% Internal — patching logic
 %% ---------------------------------------------------------------------------
 
--spec do_patch(file:filename(), #elf{}, non_neg_integer(),
-               non_neg_integer(), patch_strategy()) ->
+-spec do_patch(
+    file:filename(),
+    #elf{},
+    non_neg_integer(),
+    non_neg_integer(),
+    patch_strategy()
+) ->
     {ok, file:filename()} | {error, term()}.
 do_patch(Path, Elf, Addr, Size, Strategy) ->
     Arch = Elf#elf.header#elf_header.machine,
-    case patch_bytes(Arch, Strategy) of
-        {error, _} = Err ->
-            Err;
-        {ok, PatchBin} ->
-            PatchSize = byte_size(PatchBin),
+    maybe
+        {ok, PatchBin} ?= patch_bytes(Arch, Strategy),
+        PatchSize = byte_size(PatchBin),
+        ok ?=
             case Size < PatchSize of
-                true ->
-                    {error, {function_too_small, Size, PatchSize}};
-                false ->
-                    case elf_parse:vaddr_to_offset(Addr, Elf) of
-                        {error, not_mapped} ->
-                            {error, {address_not_mapped, Addr}};
-                        {ok, FileOffset} ->
-                            PadBin = padding(Arch, Size - PatchSize),
-                            FullPatch = <<PatchBin/binary, PadBin/binary>>,
-                            apply_patch(Path, FileOffset, FullPatch)
-                    end
-            end
+                true -> {error, {function_too_small, Size, PatchSize}};
+                false -> ok
+            end,
+        {ok, FileOffset} ?=
+            case elf_parse:vaddr_to_offset(Addr, Elf) of
+                {error, not_mapped} -> {error, {address_not_mapped, Addr}};
+                {ok, _} = Ok -> Ok
+            end,
+        PadBin = padding(Arch, Size - PatchSize),
+        FullPatch = <<PatchBin/binary, PadBin/binary>>,
+        apply_patch(Path, FileOffset, FullPatch)
     end.
 
 -spec patch_bytes(atom(), patch_strategy()) ->
@@ -178,39 +201,34 @@ padding(_, N) ->
     {ok, file:filename()} | {error, term()}.
 apply_patch(Path, Offset, PatchBin) ->
     BackupPath = Path ++ ".orig",
-    case filelib:is_regular(BackupPath) of
-        true ->
-            {error, {backup_exists, BackupPath}};
-        false ->
+    maybe
+        ok ?=
+            case filelib:is_regular(BackupPath) of
+                true -> {error, {backup_exists, BackupPath}};
+                false -> ok
+            end,
+        {ok, Bin} ?=
             case file:read_file(Path) of
-                {error, Reason} ->
-                    {error, {file, Reason}};
-                {ok, Bin} ->
-                    PatchLen = byte_size(PatchBin),
-                    case Offset + PatchLen =< byte_size(Bin) of
-                        false ->
-                            {error, {patch_out_of_bounds, Offset, PatchLen,
-                                     byte_size(Bin)}};
-                        true ->
-                            <<Before:Offset/binary,
-                              _:PatchLen/binary,
-                              After/binary>> = Bin,
-                            Patched = <<Before/binary,
-                                        PatchBin/binary,
-                                        After/binary>>,
-                            case file:write_file(BackupPath, Bin) of
-                                {error, Reason} ->
-                                    {error, {file, Reason}};
-                                ok ->
-                                    case file:write_file(Path, Patched) of
-                                        ok ->
-                                            {ok, BackupPath};
-                                        {error, Reason} ->
-                                            {error, {file, Reason}}
-                                    end
-                            end
-                    end
-            end
+                {ok, _} = Ok -> Ok;
+                {error, Reason1} -> {error, {file, Reason1}}
+            end,
+        PatchLen = byte_size(PatchBin),
+        ok ?=
+            case Offset + PatchLen =< byte_size(Bin) of
+                false -> {error, {patch_out_of_bounds, Offset, PatchLen, byte_size(Bin)}};
+                true -> ok
+            end,
+        <<Before:Offset/binary, _:PatchLen/binary, After/binary>> = Bin,
+        Patched = <<Before/binary, PatchBin/binary, After/binary>>,
+        ok ?=
+            case file:write_file(BackupPath, Bin) of
+                ok -> ok;
+                {error, Reason2} -> {error, {file, Reason2}}
+            end,
+        case file:write_file(Path, Patched) of
+            ok -> {ok, BackupPath};
+            {error, Reason3} -> {error, {file, Reason3}}
+        end
     end.
 
 %% ---------------------------------------------------------------------------

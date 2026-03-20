@@ -1,5 +1,6 @@
 -module(elf_parse_symtab_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 
 %% ---------------------------------------------------------------------------
@@ -23,18 +24,12 @@ build_test_elf() ->
     %% --- String tables ---
     %% Section name string table (shstrtab): used by section headers
     %% Index 0: \0 (null), 1: .strtab\0, 9: .symtab\0
-    ShStrTab = <<0,
-                 ".strtab", 0,
-                 ".symtab", 0>>,
+    ShStrTab = <<0, ".strtab", 0, ".symtab", 0>>,
     %% Offsets: .strtab = 1, .symtab = 9
 
     %% Symbol string table: names for our test symbols
     %% Index 0: \0 (null name), 1: main\0, 6: my_global\0, 16: my_local\0, 25: my_object\0
-    SymStrTab = <<0,
-                  "main", 0,
-                  "my_global", 0,
-                  "my_local", 0,
-                  "my_object", 0>>,
+    SymStrTab = <<0, "main", 0, "my_global", 0, "my_local", 0, "my_object", 0>>,
     %% Offsets: main=1, my_global=6, my_local=16, my_object=25
 
     %% --- Symbols (Elf64_Sym, 24 bytes each) ---
@@ -74,7 +69,8 @@ build_test_elf() ->
     Shdrs = <<Sh0/binary, Sh1/binary, Sh2/binary, Sh3/binary>>,
 
     ShCount = 4,
-    ShStrNdx = 1,  %% Section 1 is our shstrtab
+    %% Section 1 is our shstrtab
+    ShStrNdx = 1,
 
     ElfHdr = elf_header(ShOff, ShCount, ShStrNdx),
     Bin = <<ElfHdr/binary, ShStrTab/binary, SymStrTab/binary, SymTab/binary, Shdrs/binary>>,
@@ -104,44 +100,47 @@ build_stripped_elf() ->
 
 elf_header(ShOff, ShCount, ShStrNdx) ->
     <<16#7F, "ELF",
-      2,              %% ELFCLASS64
-      1,              %% ELFDATA2LSB
-      1,              %% EV_CURRENT
-      0,              %% OS/ABI
-      0:64,           %% padding
-      2:16/little,    %% ET_EXEC
-      16#3E:16/little,%% EM_X86_64
-      1:32/little,    %% EV_CURRENT
-      16#401000:64/little, %% e_entry
-      0:64/little,    %% e_phoff (no phdrs)
-      ShOff:64/little,%% e_shoff
-      0:32/little,    %% e_flags
-      64:16/little,   %% e_ehsize
-      56:16/little,   %% e_phentsize
-      0:16/little,    %% e_phnum
-      64:16/little,   %% e_shentsize
-      ShCount:16/little,
-      ShStrNdx:16/little>>.
+        %% ELFCLASS64
+        2,
+        %% ELFDATA2LSB
+        1,
+        %% EV_CURRENT
+        1,
+        %% OS/ABI
+        0,
+        %% padding
+        0:64,
+        %% ET_EXEC
+        2:16/little,
+        %% EM_X86_64
+        16#3E:16/little,
+        %% EV_CURRENT
+        1:32/little,
+        %% e_entry
+        16#401000:64/little,
+        %% e_phoff (no phdrs)
+        0:64/little,
+        %% e_shoff
+        ShOff:64/little,
+        %% e_flags
+        0:32/little,
+        %% e_ehsize
+        64:16/little,
+        %% e_phentsize
+        56:16/little,
+        %% e_phnum
+        0:16/little,
+        %% e_shentsize
+        64:16/little, ShCount:16/little, ShStrNdx:16/little>>.
 
 shdr_entry(Name, Type, Flags, Offset, Size, Link, Info, Addralign, Entsize) ->
-    <<Name:32/little,
-      Type:32/little,
-      Flags:64/little,
-      0:64/little,       %% sh_addr
-      Offset:64/little,
-      Size:64/little,
-      Link:32/little,
-      Info:32/little,
-      Addralign:64/little,
-      Entsize:64/little>>.
+    <<Name:32/little, Type:32/little, Flags:64/little,
+        %% sh_addr
+        0:64/little, Offset:64/little, Size:64/little, Link:32/little, Info:32/little,
+        Addralign:64/little, Entsize:64/little>>.
 
 sym_entry(Name, Info, Other, Shndx, Value, Size) ->
-    <<Name:32/little,
-      Info:8,
-      Other:8,
-      Shndx:16/little,
-      Value:64/little,
-      Size:64/little>>.
+    <<Name:32/little, Info:8, Other:8, Shndx:16/little, Value:64/little, Size:64/little>>.
 
 st_info(Bind, Type) ->
     (Bind bsl 4) bor Type.

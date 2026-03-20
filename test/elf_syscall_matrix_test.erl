@@ -10,6 +10,7 @@
 -module(elf_syscall_matrix_test).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% ---------------------------------------------------------------------------
 %% Test generators
@@ -18,7 +19,8 @@
 asm_matrix_test_() ->
     BinDir = asm_bin_dir(),
     case filelib:is_dir(BinDir) of
-        false -> [];
+        false ->
+            [];
         true ->
             Bins = filelib:wildcard(filename:join(BinDir, "syscall_*")),
             [asm_test_case(B) || B <- lists:sort(Bins)]
@@ -27,7 +29,8 @@ asm_matrix_test_() ->
 go_matrix_test_() ->
     BinDir = go_bin_dir(),
     case filelib:is_dir(BinDir) of
-        false -> [];
+        false ->
+            [];
         true ->
             Bins = filelib:wildcard(filename:join(BinDir, "cat_*")),
             [go_test_case(B) || B <- lists:sort(Bins)]
@@ -56,35 +59,50 @@ run_asm_test(BinPath, Nr, Name) ->
     ?assertMatch(
         {ok, _},
         maps:find(Nr, Resolved),
-        lists:flatten(io_lib:format(
-            "Syscall ~b (~s) not found in resolved set. Got: ~p",
-            [Nr, Name, maps:keys(Resolved)]))),
+        lists:flatten(
+            io_lib:format(
+                "Syscall ~b (~s) not found in resolved set. Got: ~p",
+                [Nr, Name, maps:keys(Resolved)]
+            )
+        )
+    ),
 
     %% For non-exit syscalls, exit(60) should also be present
     IsExit = lists:member(Nr, [60, 231]),
     case IsExit of
-        true -> ok;
+        true ->
+            ok;
         false ->
             ?assertMatch(
                 {ok, _},
                 maps:find(60, Resolved),
-                "exit(60) not found in resolved set")
+                "exit(60) not found in resolved set"
+            )
     end,
 
     %% Strace comparison if available
     StraceFile = strace_file(asm, BinPath),
     case filelib:is_regular(StraceFile) of
-        false -> ok;
+        false ->
+            ok;
         true ->
             StraceSyscalls = parse_strace(StraceFile),
             ResolvedNames = [N || {_, N} <- maps:to_list(Resolved)],
-            Missing = [S || S <- StraceSyscalls,
-                       not lists:member(S, ResolvedNames)],
+            Missing = [
+                S
+             || S <- StraceSyscalls,
+                not lists:member(S, ResolvedNames)
+            ],
             ?assertEqual(
-                [], Missing,
-                lists:flatten(io_lib:format(
-                    "Strace syscalls not found in static analysis: ~p",
-                    [Missing])))
+                [],
+                Missing,
+                lists:flatten(
+                    io_lib:format(
+                        "Strace syscalls not found in static analysis: ~p",
+                        [Missing]
+                    )
+                )
+            )
     end.
 
 %% ---------------------------------------------------------------------------
@@ -108,33 +126,52 @@ run_go_test(BinPath) ->
 
     %% Must find at least some syscalls
     TotalDetected = map_size(Resolved) + UnresolvedCount,
-    ?assert(TotalDetected > 0,
-            "No syscalls detected in Go binary"),
+    ?assert(
+        TotalDetected > 0,
+        "No syscalls detected in Go binary"
+    ),
 
     %% If strace data exists, compute coverage
     StraceFile = strace_file(go, BinPath),
     case filelib:is_regular(StraceFile) of
-        false -> ok;
+        false ->
+            ok;
         true ->
             StraceSyscalls = parse_strace(StraceFile),
             ResolvedNames = [N || {_, N} <- maps:to_list(Resolved)],
-            Found = [S || S <- StraceSyscalls,
-                     lists:member(S, ResolvedNames)],
-            Coverage = case length(StraceSyscalls) of
-                0 -> 100.0;
-                Total -> length(Found) / Total * 100.0
-            end,
-            io:format(user, "  ~s: ~.1f% coverage (~b/~b strace syscalls, "
-                      "~b resolved, ~b unresolved)~n",
-                      [filename:basename(BinPath), Coverage,
-                       length(Found), length(StraceSyscalls),
-                       map_size(Resolved), UnresolvedCount]),
+            Found = [
+                S
+             || S <- StraceSyscalls,
+                lists:member(S, ResolvedNames)
+            ],
+            Coverage =
+                case length(StraceSyscalls) of
+                    0 -> 100.0;
+                    Total -> length(Found) / Total * 100.0
+                end,
+            io:format(
+                user,
+                "  ~s: ~.1f% coverage (~b/~b strace syscalls, "
+                "~b resolved, ~b unresolved)~n",
+                [
+                    filename:basename(BinPath),
+                    Coverage,
+                    length(Found),
+                    length(StraceSyscalls),
+                    map_size(Resolved),
+                    UnresolvedCount
+                ]
+            ),
             %% Warn but don't fail on low coverage for Go binaries
             case Coverage < 80.0 of
                 true ->
-                    io:format(user, "  WARNING: Low coverage for ~s: ~.1f%~n",
-                              [filename:basename(BinPath), Coverage]);
-                false -> ok
+                    io:format(
+                        user,
+                        "  WARNING: Low coverage for ~s: ~.1f%~n",
+                        [filename:basename(BinPath), Coverage]
+                    );
+                false ->
+                    ok
             end
     end.
 
@@ -155,7 +192,8 @@ parse_strace(File) ->
     Lines = string:split(binary_to_list(Data), "\n", all),
     parse_strace_lines(Lines, []).
 
-parse_strace_lines([], Acc) -> lists:reverse(Acc);
+parse_strace_lines([], Acc) ->
+    lists:reverse(Acc);
 parse_strace_lines([Line | Rest], Acc) ->
     Trimmed = string:trim(Line),
     case parse_strace_line(Trimmed) of
@@ -163,24 +201,31 @@ parse_strace_lines([Line | Rest], Acc) ->
         skip -> parse_strace_lines(Rest, Acc)
     end.
 
-parse_strace_line([]) -> skip;
-parse_strace_line("%" ++ _) -> skip;     % header
-parse_strace_line("-" ++ _) -> skip;     % separator
+parse_strace_line([]) ->
+    skip;
+% header
+parse_strace_line("%" ++ _) ->
+    skip;
+% separator
+parse_strace_line("-" ++ _) ->
+    skip;
 parse_strace_line(Line) ->
     %% Try to extract syscall name (last field in the line)
     case string:tokens(Line, " \t") of
         Tokens when length(Tokens) >= 6 ->
             Last = lists:last(Tokens),
             case Last of
-                "total" -> skip;
+                "total" ->
+                    skip;
                 Name ->
                     %% Verify first token looks like a percentage
                     case hd(Tokens) of
-                        [C|_] when C >= $0, C =< $9 -> {ok, Name};
+                        [C | _] when C >= $0, C =< $9 -> {ok, Name};
                         _ -> skip
                     end
             end;
-        _ -> skip
+        _ ->
+            skip
     end.
 
 %% ---------------------------------------------------------------------------
@@ -189,8 +234,13 @@ parse_strace_line(Line) ->
 
 parse_asm_filename(Basename) ->
     %% syscall_NNN_name -> {NNN, "name"}
-    case re:run(Basename, "^syscall_(\\d+)_(.+)$",
-                [{capture, all_but_first, list}]) of
+    case
+        re:run(
+            Basename,
+            "^syscall_(\\d+)_(.+)$",
+            [{capture, all_but_first, list}]
+        )
+    of
         {match, [NrStr, Name]} ->
             {list_to_integer(NrStr), Name};
         nomatch ->
@@ -202,7 +252,8 @@ matrix_dir() ->
     {ok, Cwd} = file:get_cwd(),
     Candidate = filename:join([Cwd, "test", "syscall_matrix"]),
     case filelib:is_dir(Candidate) of
-        true -> Candidate;
+        true ->
+            Candidate;
         false ->
             %% Walk up from CWD looking for test/syscall_matrix
             find_matrix_dir(Cwd)
@@ -211,7 +262,8 @@ matrix_dir() ->
 find_matrix_dir(Dir) ->
     Candidate = filename:join([Dir, "test", "syscall_matrix"]),
     case filelib:is_dir(Candidate) of
-        true -> Candidate;
+        true ->
+            Candidate;
         false ->
             Parent = filename:dirname(Dir),
             case Parent of
@@ -221,7 +273,7 @@ find_matrix_dir(Dir) ->
     end.
 
 asm_bin_dir() -> filename:join(matrix_dir(), "bin/asm").
-go_bin_dir()  -> filename:join(matrix_dir(), "bin/go").
+go_bin_dir() -> filename:join(matrix_dir(), "bin/go").
 
 strace_file(asm, BinPath) ->
     Base = filename:basename(BinPath),

@@ -1,13 +1,31 @@
-%%% @doc Rust binary analysis module.
-%%%
-%%% Detects Rust binaries and extracts crate information from:
-%%% - .symtab: legacy (_ZN) and v0 (_R) mangled symbols
-%%% - .rodata: panic strings containing .cargo/registry paths
-%%% - .comment: rustc compiler version strings
-%%%
-%%% Rust doesn't have dedicated sections like Go, so detection relies
-%%% on symbol mangling patterns and embedded string artifacts.
+%%
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(elf_lang_rust).
+-moduledoc """
+Rust binary analysis module.
+
+Detects Rust binaries and extracts crate information from:
+- .symtab: legacy (_ZN) and v0 (_R) mangled symbols
+- .rodata: panic strings containing .cargo/registry paths
+- .comment: rustc compiler version strings
+
+Rust doesn't have dedicated sections like Go, so detection relies
+on symbol mangling patterns and embedded string artifacts.
+""".
 
 -include("elf_parse.hrl").
 -include("elf_lang_rust.hrl").
@@ -23,7 +41,7 @@
     rust_crate/0
 ]).
 
--type rust_info()  :: #rust_info{}.
+-type rust_info() :: #rust_info{}.
 -type rust_crate() :: #rust_crate{}.
 
 %% ---------------------------------------------------------------------------
@@ -69,7 +87,7 @@ has_rust_symbols(Elf) ->
 
 -spec is_rust_symbol(#elf_sym{}) -> boolean().
 is_rust_symbol(#elf_sym{name = <<"_ZN", _/binary>>}) -> true;
-is_rust_symbol(#elf_sym{name = <<"_R", _/binary>>})  -> true;
+is_rust_symbol(#elf_sym{name = <<"_R", _/binary>>}) -> true;
 is_rust_symbol(_) -> false.
 
 -spec crates_from_symtab(#elf{}) -> [#rust_crate{}].
@@ -79,8 +97,10 @@ crates_from_symtab(Elf) ->
             RustSyms = [S || S <- Syms, is_rust_symbol(S)],
             Names = lists:filtermap(fun extract_crate_from_symbol/1, RustSyms),
             Unique = lists:usort(Names),
-            [#rust_crate{name = N, version = unknown, source = symtab}
-             || N <- Unique];
+            [
+                #rust_crate{name = N, version = unknown, source = symtab}
+             || N <- Unique
+            ];
         _ ->
             []
     end.
@@ -170,26 +190,29 @@ skip_until_underscore(<<>>) ->
     error;
 skip_until_underscore(<<"_", Rest/binary>>) ->
     {ok, Rest};
-skip_until_underscore(<<C, Rest/binary>>)
-  when (C >= $0 andalso C =< $9);
-       (C >= $a andalso C =< $z);
-       (C >= $A andalso C =< $Z) ->
+skip_until_underscore(<<C, Rest/binary>>) when
+    (C >= $0 andalso C =< $9);
+    (C >= $a andalso C =< $z);
+    (C >= $A andalso C =< $Z)
+->
     skip_until_underscore(Rest);
 skip_until_underscore(_) ->
     error.
 
 is_valid_crate_name(<<>>) -> false;
-is_valid_crate_name(Bin) ->
-    is_valid_crate_name_1(Bin).
+is_valid_crate_name(Bin) -> is_valid_crate_name_1(Bin).
 
-is_valid_crate_name_1(<<>>) -> true;
-is_valid_crate_name_1(<<C, Rest/binary>>)
-  when (C >= $a andalso C =< $z);
-       (C >= $A andalso C =< $Z);
-       (C >= $0 andalso C =< $9);
-       C =:= $_ ->
+is_valid_crate_name_1(<<>>) ->
+    true;
+is_valid_crate_name_1(<<C, Rest/binary>>) when
+    (C >= $a andalso C =< $z);
+    (C >= $A andalso C =< $Z);
+    (C >= $0 andalso C =< $9);
+    C =:= $_
+->
     is_valid_crate_name_1(Rest);
-is_valid_crate_name_1(_) -> false.
+is_valid_crate_name_1(_) ->
+    false.
 
 %% ---------------------------------------------------------------------------
 %% .rodata panic string scanning
@@ -218,10 +241,15 @@ scan_cargo_paths(Data) ->
     Crates = lists:filtermap(
         fun({Pos, Len}) ->
             AfterMarker = Pos + Len,
-            Rest = binary:part(Data, AfterMarker,
-                               byte_size(Data) - AfterMarker),
+            Rest = binary:part(
+                Data,
+                AfterMarker,
+                byte_size(Data) - AfterMarker
+            ),
             extract_crate_from_cargo_path(Rest)
-        end, Matches),
+        end,
+        Matches
+    ),
     dedup_crates(Crates).
 
 %% After ".cargo/registry/src/" we expect:
@@ -232,8 +260,11 @@ extract_crate_from_cargo_path(Rest) ->
     %% Skip past the registry directory (up to first '/')
     case binary:match(Rest, <<"/">>) of
         {SlashPos, 1} ->
-            AfterRegistry = binary:part(Rest, SlashPos + 1,
-                                        byte_size(Rest) - SlashPos - 1),
+            AfterRegistry = binary:part(
+                Rest,
+                SlashPos + 1,
+                byte_size(Rest) - SlashPos - 1
+            ),
             %% Now extract crate-version up to the next '/'
             case binary:match(AfterRegistry, <<"/">>) of
                 {SlashPos2, 1} ->
@@ -252,8 +283,11 @@ extract_crate_from_cargo_path(Rest) ->
 parse_crate_version(CrateVer) ->
     case find_version_split(CrateVer) of
         {ok, Name, Version} ->
-            {true, #rust_crate{name = Name, version = Version,
-                               source = panic_strings}};
+            {true, #rust_crate{
+                name = Name,
+                version = Version,
+                source = panic_strings
+            }};
         error ->
             false
     end.
@@ -273,8 +307,11 @@ find_version_split_1(Bin, [{Pos, 1} | Rest]) ->
             case Next >= $0 andalso Next =< $9 of
                 true ->
                     Name = binary:part(Bin, 0, Pos),
-                    Version = binary:part(Bin, Pos + 1,
-                                          byte_size(Bin) - Pos - 1),
+                    Version = binary:part(
+                        Bin,
+                        Pos + 1,
+                        byte_size(Bin) - Pos - 1
+                    ),
                     {ok, Name, Version};
                 false ->
                     find_version_split_1(Bin, Rest)
@@ -339,9 +376,10 @@ take_until_terminator(Bin, Pos) when Pos >= byte_size(Bin) ->
 take_until_terminator(Bin, Pos) ->
     <<_:Pos/binary, C:8, _/binary>> = Bin,
     case C of
-        0  -> version_or_unknown(Bin, Pos);
-        10 -> version_or_unknown(Bin, Pos);  %% newline
-        _  -> take_until_terminator(Bin, Pos + 1)
+        0 -> version_or_unknown(Bin, Pos);
+        %% newline
+        10 -> version_or_unknown(Bin, Pos);
+        _ -> take_until_terminator(Bin, Pos + 1)
     end.
 
 version_or_unknown(_Bin, 0) -> unknown;
@@ -355,17 +393,24 @@ version_or_unknown(Bin, Pos) -> binary:part(Bin, 0, Pos).
 %% and preferring panic_strings source (has version) over symtab.
 -spec dedup_crates([#rust_crate{}]) -> [#rust_crate{}].
 dedup_crates(Crates) ->
-    Map = lists:foldl(fun(C = #rust_crate{name = N}, Acc) ->
-        case maps:find(N, Acc) of
-            {ok, Existing} ->
-                maps:put(N, pick_better(Existing, C), Acc);
-            error ->
-                maps:put(N, C, Acc)
-        end
-    end, #{}, Crates),
-    lists:sort(fun(#rust_crate{name = A}, #rust_crate{name = B}) ->
-        A =< B
-    end, maps:values(Map)).
+    Map = lists:foldl(
+        fun(C = #rust_crate{name = N}, Acc) ->
+            case maps:find(N, Acc) of
+                {ok, Existing} ->
+                    maps:put(N, pick_better(Existing, C), Acc);
+                error ->
+                    maps:put(N, C, Acc)
+            end
+        end,
+        #{},
+        Crates
+    ),
+    lists:sort(
+        fun(#rust_crate{name = A}, #rust_crate{name = B}) ->
+            A =< B
+        end,
+        maps:values(Map)
+    ).
 
 -spec pick_better(#rust_crate{}, #rust_crate{}) -> #rust_crate{}.
 pick_better(#rust_crate{version = unknown} = _Old, New) -> New;

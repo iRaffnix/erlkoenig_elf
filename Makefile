@@ -1,4 +1,4 @@
-.PHONY: all compile test dialyzer check release clean install uninstall tag
+.PHONY: all compile test dialyzer check release clean install uninstall tag fmt fmt-check xref lint
 
 PREFIX ?= /opt/erlkoenig_elf
 SERVICE_USER ?= erlkoenig
@@ -11,15 +11,28 @@ all: compile
 compile:
 	rebar3 compile
 
+# ── Quality ──────────────────────────────────────────────
+
+fmt:
+	rebar3 fmt
+
+fmt-check:
+	rebar3 fmt --check
+
+xref:
+	rebar3 xref
+
+dialyzer:
+	rebar3 dialyzer
+
+lint: fmt-check xref dialyzer
+
 # ── Test ─────────────────────────────────────────────────
 
 test:
 	rebar3 eunit
 
-dialyzer:
-	rebar3 dialyzer
-
-check: test dialyzer
+check: lint test
 
 # ── Release ──────────────────────────────────────────────
 

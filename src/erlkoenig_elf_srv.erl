@@ -1,12 +1,30 @@
-%% @doc ELF analysis service — listens on a Unix socket, handles requests.
 %%
-%% Protocol: 4-byte big-endian length prefix + ETF payload.
-%% Requests/responses are Erlang terms via term_to_binary/binary_to_term.
+%% Copyright 2026 Erlkoenig Contributors
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+
 -module(erlkoenig_elf_srv).
+-moduledoc """
+ELF analysis service -- listens on a Unix socket, handles requests.
+
+Protocol: 4-byte big-endian length prefix + ETF payload.
+Requests/responses are Erlang terms via term_to_binary/binary_to_term.
+""".
 -behaviour(gen_server).
 
 -export([start_link/1]).
--export([init/1, handle_info/2, handle_cast/2, handle_call/3, terminate/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -record(state, {
     socket_path :: string(),
@@ -26,11 +44,18 @@ start_link(SocketPath) ->
 
 init(SocketPath) ->
     process_flag(trap_exit, true),
+    proc_lib:set_label(erlkoenig_elf_srv),
     %% Remove stale socket file
     _ = file:delete(SocketPath),
-    case gen_tcp:listen(0, [binary, {packet, 4}, {active, false},
-                            {ifaddr, {local, SocketPath}},
-                            {backlog, 16}]) of
+    case
+        gen_tcp:listen(0, [
+            binary,
+            {packet, 4},
+            {active, false},
+            {ifaddr, {local, SocketPath}},
+            {backlog, 16}
+        ])
+    of
         {ok, LSock} ->
             %% Set socket permissions: 660 (owner + group only)
             _ = file:change_mode(SocketPath, 8#660),
@@ -41,34 +66,30 @@ init(SocketPath) ->
             {stop, {listen_failed, Reason}}
     end.
 
+handle_call(_Msg, _From, State) ->
+    {reply, {error, not_implemented}, State}.
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
 handle_info(accept, #state{listen_sock = LSock} = State) ->
     %% Spawn acceptor — non-blocking accept loop
     Self = self(),
     spawn_link(fun() -> accept_loop(Self, LSock) end),
     {noreply, State};
-
 handle_info({client, Sock}, State) ->
     %% New client connected — spawn handler, then continue accepting
     spawn(fun() -> handle_client(Sock) end),
     {noreply, State};
-
 handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
-
 handle_info({'EXIT', _Pid, Reason}, State) ->
     logger:warning("erlkoenig_elf_srv: linked process died: ~p", [Reason]),
     %% Restart accept loop
     self() ! accept,
     {noreply, State};
-
 handle_info(_Msg, State) ->
     {noreply, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_call(_Msg, _From, State) ->
-    {reply, {error, not_implemented}, State}.
 
 terminate(_Reason, #state{socket_path = Path, listen_sock = LSock}) ->
     catch gen_tcp:close(LSock),
@@ -119,35 +140,25 @@ handle_client(Sock) ->
 
 handle_request(ping) ->
     pong;
-
 handle_request(version) ->
     {ok, Vsn} = application:get_key(erlkoenig_elf, vsn),
     {version, list_to_binary(Vsn)};
-
 handle_request({analyze, Path}) ->
     with_elf(Path, fun(Elf) -> erlkoenig_elf:analyze(Elf) end);
-
 handle_request({syscalls, Path}) ->
     with_elf(Path, fun(Elf) -> erlkoenig_elf:syscalls(Elf) end);
-
 handle_request({seccomp, Path, json}) ->
     with_elf(Path, fun(Elf) -> erlkoenig_elf:seccomp_json(Elf) end);
-
 handle_request({seccomp, Path, bpf}) ->
     with_elf(Path, fun(Elf) -> erlkoenig_elf:seccomp_bpf(Elf) end);
-
 handle_request({seccomp, Path}) ->
     handle_request({seccomp, Path, json});
-
 handle_request({language, Path}) ->
     with_elf(Path, fun(Elf) -> {ok, erlkoenig_elf:language(Elf)} end);
-
 handle_request({deps, Path}) ->
     with_elf(Path, fun(Elf) -> erlkoenig_elf:deps(Elf) end);
-
 handle_request({patch, Path, Func, Strategy}) ->
     safe_call(fun() -> erlkoenig_elf:patch(Path, Func, Strategy) end);
-
 handle_request(_Unknown) ->
     {error, unknown_request}.
 
@@ -157,14 +168,10 @@ handle_request(_Unknown) ->
 
 with_elf(Path, Fun) ->
     safe_call(fun() ->
-        case validate_path(Path) of
-            ok ->
-                case erlkoenig_elf:parse(Path) of
-                    {ok, Elf} -> Fun(Elf);
-                    {error, _} = Err -> Err
-                end;
-            {error, _} = Err ->
-                Err
+        maybe
+            ok ?= validate_path(Path),
+            {ok, Elf} ?= erlkoenig_elf:parse(Path),
+            Fun(Elf)
         end
     end).
 

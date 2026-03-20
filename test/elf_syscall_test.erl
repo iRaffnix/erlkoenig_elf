@@ -1,5 +1,6 @@
 -module(elf_syscall_test).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("elf_parse.hrl").
 
 %% ---------------------------------------------------------------------------
@@ -31,21 +32,44 @@ make_elf(Machine, TextContent) ->
     PadSize = ShdrOff - ShdrOff0,
 
     Header = elf_header_le(
-        ?ET_EXEC, Machine, ?TEXT_VADDR,
-        64, ShdrOff, 1, 3, 2),
+        ?ET_EXEC,
+        Machine,
+        ?TEXT_VADDR,
+        64,
+        ShdrOff,
+        1,
+        3,
+        2
+    ),
     Phdr = phdr_le(
-        ?PT_LOAD, ?PF_R bor ?PF_X,
-        TextOff, ?TEXT_VADDR, ?TEXT_VADDR,
-        TextSize, TextSize, 16#1000),
+        ?PT_LOAD,
+        ?PF_R bor ?PF_X,
+        TextOff,
+        ?TEXT_VADDR,
+        ?TEXT_VADDR,
+        TextSize,
+        TextSize,
+        16#1000
+    ),
 
     Shdr0 = shdr_le(0, ?SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0),
-    Shdr1 = shdr_le(1, ?SHT_PROGBITS, ?SHF_ALLOC bor ?SHF_EXECINSTR,
-                     ?TEXT_VADDR, TextOff, TextSize, 0, 0, 16, 0),
+    Shdr1 = shdr_le(
+        1,
+        ?SHT_PROGBITS,
+        ?SHF_ALLOC bor ?SHF_EXECINSTR,
+        ?TEXT_VADDR,
+        TextOff,
+        TextSize,
+        0,
+        0,
+        16,
+        0
+    ),
     Shdr2 = shdr_le(7, ?SHT_STRTAB, 0, 0, StrtabOff, StrTabSize, 0, 0, 1, 0),
 
     Pad = <<0:(PadSize * 8)>>,
-    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary,
-      Shdr0/binary, Shdr1/binary, Shdr2/binary>>.
+    <<Header/binary, Phdr/binary, TextContent/binary, StrTab/binary, Pad/binary, Shdr0/binary,
+        Shdr1/binary, Shdr2/binary>>.
 
 %% x86-64: MOV EAX, <imm32> ; SYSCALL
 %% Encodes as: B8 <imm32 LE> 0F 05
@@ -57,26 +81,29 @@ x86_64_syscall_seq(Nr) ->
 %% ---------------------------------------------------------------------------
 
 elf_header_le(Type, Machine, Entry, PhOff, ShOff, PhNum, ShNum, ShStrNdx) ->
-    <<16#7F, "ELF",
-      2:8, 1:8, 1:8, 0:8, 0:64,
-      Type:16/little, Machine:16/little,
-      1:32/little, Entry:64/little,
-      PhOff:64/little, ShOff:64/little,
-      0:32/little, 64:16/little, 56:16/little,
-      PhNum:16/little, 64:16/little,
-      ShNum:16/little, ShStrNdx:16/little>>.
+    <<16#7F, "ELF", 2:8, 1:8, 1:8, 0:8, 0:64, Type:16/little, Machine:16/little, 1:32/little,
+        Entry:64/little, PhOff:64/little, ShOff:64/little, 0:32/little, 64:16/little, 56:16/little,
+        PhNum:16/little, 64:16/little, ShNum:16/little, ShStrNdx:16/little>>.
 
 phdr_le(PType, PFlags, POffset, PVaddr, PPaddr, PFilesz, PMemsz, PAlign) ->
-    <<PType:32/little, PFlags:32/little,
-      POffset:64/little, PVaddr:64/little, PPaddr:64/little,
-      PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
+    <<PType:32/little, PFlags:32/little, POffset:64/little, PVaddr:64/little, PPaddr:64/little,
+        PFilesz:64/little, PMemsz:64/little, PAlign:64/little>>.
 
-shdr_le(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
-        ShLink, ShInfo, ShAddralign, ShEntsize) ->
-    <<ShName:32/little, ShType:32/little, ShFlags:64/little,
-      ShAddr:64/little, ShOffset:64/little, ShSize:64/little,
-      ShLink:32/little, ShInfo:32/little,
-      ShAddralign:64/little, ShEntsize:64/little>>.
+shdr_le(
+    ShName,
+    ShType,
+    ShFlags,
+    ShAddr,
+    ShOffset,
+    ShSize,
+    ShLink,
+    ShInfo,
+    ShAddralign,
+    ShEntsize
+) ->
+    <<ShName:32/little, ShType:32/little, ShFlags:64/little, ShAddr:64/little, ShOffset:64/little,
+        ShSize:64/little, ShLink:32/little, ShInfo:32/little, ShAddralign:64/little,
+        ShEntsize:64/little>>.
 
 %% ===========================================================================
 %% Tests
@@ -86,8 +113,7 @@ shdr_le(ShName, ShType, ShFlags, ShAddr, ShOffset, ShSize,
 
 extract_x86_64_test() ->
     %% Two syscall sequences: write (1) and exit_group (231)
-    Text = <<(x86_64_syscall_seq(1))/binary,
-             (x86_64_syscall_seq(231))/binary>>,
+    Text = <<(x86_64_syscall_seq(1))/binary, (x86_64_syscall_seq(231))/binary>>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Result} = elf_syscall:extract(Elf),
@@ -106,10 +132,12 @@ extract_x86_64_test() ->
 
 extract_multiple_syscalls_test() ->
     %% read(0), write(1), openat(257), exit_group(231)
-    Text = <<(x86_64_syscall_seq(0))/binary,
-             (x86_64_syscall_seq(1))/binary,
-             (x86_64_syscall_seq(257))/binary,
-             (x86_64_syscall_seq(231))/binary>>,
+    Text = <<
+        (x86_64_syscall_seq(0))/binary,
+        (x86_64_syscall_seq(1))/binary,
+        (x86_64_syscall_seq(257))/binary,
+        (x86_64_syscall_seq(231))/binary
+    >>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Result} = elf_syscall:extract(Elf),
@@ -121,9 +149,11 @@ extract_multiple_syscalls_test() ->
 %% --- numbers/1 ---
 
 numbers_test() ->
-    Text = <<(x86_64_syscall_seq(1))/binary,
-             (x86_64_syscall_seq(60))/binary,
-             (x86_64_syscall_seq(231))/binary>>,
+    Text = <<
+        (x86_64_syscall_seq(1))/binary,
+        (x86_64_syscall_seq(60))/binary,
+        (x86_64_syscall_seq(231))/binary
+    >>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Nrs} = elf_syscall:numbers(Elf),
@@ -132,8 +162,7 @@ numbers_test() ->
 %% --- names/1 ---
 
 names_test() ->
-    Text = <<(x86_64_syscall_seq(1))/binary,
-             (x86_64_syscall_seq(60))/binary>>,
+    Text = <<(x86_64_syscall_seq(1))/binary, (x86_64_syscall_seq(60))/binary>>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Names} = elf_syscall:names(Elf),
@@ -143,10 +172,17 @@ names_test() ->
 
 categories_test() ->
     %% write=filesystem, socket=network, mmap=memory, exit=process
-    Text = <<(x86_64_syscall_seq(1))/binary,    % write
-             (x86_64_syscall_seq(41))/binary,   % socket
-             (x86_64_syscall_seq(9))/binary,    % mmap
-             (x86_64_syscall_seq(60))/binary>>,  % exit
+
+    % write
+    Text = <<
+        (x86_64_syscall_seq(1))/binary,
+        % socket
+        (x86_64_syscall_seq(41))/binary,
+        % mmap
+        (x86_64_syscall_seq(9))/binary,
+        % exit
+        (x86_64_syscall_seq(60))/binary
+    >>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Cats} = elf_syscall:categories(Elf),
@@ -170,7 +206,8 @@ unsupported_arch_test() ->
 %% --- Empty text section ---
 
 empty_text_test() ->
-    Text = <<16#C3>>,  % just RET, no syscalls
+    % just RET, no syscalls
+    Text = <<16#C3>>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Result} = elf_syscall:extract(Elf),
@@ -183,8 +220,7 @@ empty_text_test() ->
 
 dedup_test() ->
     %% Two write(1) calls should result in one resolved entry
-    Text = <<(x86_64_syscall_seq(1))/binary,
-             (x86_64_syscall_seq(1))/binary>>,
+    Text = <<(x86_64_syscall_seq(1))/binary, (x86_64_syscall_seq(1))/binary>>,
     Bin = make_elf(?EM_X86_64, Text),
     {ok, Elf} = elf_parse:from_binary(Bin),
     {ok, Result} = elf_syscall:extract(Elf),
